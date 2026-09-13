@@ -546,8 +546,13 @@ async function stopActive() {
         : 'Обход работает службой Windows «zapret», установленной не из Klutz. Снять службу и остановить?'
     );
     if (!ok) return;
-    await window.zapret.removeService();
+    const removed = await window.zapret.removeService();
     loadServiceStatus();
+    if (removed && removed.ok === false) {
+      showToast(removed.error || 'Не удалось снять службу', 'error');
+      refreshState();
+      return;
+    }
   } else {
     // Команда теперь честно отвечает, получилось ли: раньше она всегда
     // возвращала успех, и окно рапортовало «Обход остановлен» поверх
@@ -577,11 +582,19 @@ $('heroFailedStopBtn').onclick = stopActive;
 // картина на первом запуске у тех, кто раньше пользовался zapret вручную:
 // «Подобрать и включить» кончалось невнятной ошибкой. Предлагаем снять её
 // на месте, а не отправлять искать, где это делается.
-async function ensureNoForeignService() {
-  if (!currentState.serviceExists || currentState.installedAsService) return true;
+//
+// Своя служба тоже мешает. Раньше проверка её пропускала: флаг
+// installedAsService означал «всё под контролем», и «Включить» шло прямым
+// запуском прямо в неё — голая ошибка «сначала сними службу» без кнопки.
+// Пропускаем только установку службой: её заменяет сама install_service.
+async function ensureNoForeignService(asService) {
+  if (!currentState.serviceExists || asService) return true;
   const ok = await showConfirm(
-    'На компьютере уже стоит служба Windows «zapret», установленная не из Klutz. ' +
-      'Пока она работает, Klutz не может запускать обход сам. Снять службу и продолжить?'
+    currentState.installedAsService
+      ? 'Обход сейчас держится службой Windows «zapret». Чтобы запустить стратегию из Klutz, ' +
+          'службу нужно снять — «Держать обход включённым» при этом выключится. Снять и продолжить?'
+      : 'На компьютере уже стоит служба Windows «zapret», установленная не из Klutz. ' +
+          'Пока она работает, Klutz не может запускать обход сам. Снять службу и продолжить?'
   );
   if (!ok) return false;
   const res = await window.zapret.removeService();
@@ -595,7 +608,7 @@ async function ensureNoForeignService() {
 }
 
 async function applyConfig(name, asService, silent) {
-  if (!(await ensureNoForeignService())) return false;
+  if (!(await ensureNoForeignService(asService))) return false;
   const res = asService ? await window.zapret.installService(name) : await window.zapret.runConfig(name);
   if (!res.ok) {
     showToast(res.error || 'Не удалось запустить', 'error');
@@ -2135,7 +2148,13 @@ $('persistentToggle').onclick = async () => {
   if (on) {
     const ok = await showConfirm('Снять службу zapret? Обход снова будет работать только пока открыт Klutz.');
     if (!ok) return;
-    await window.zapret.removeService();
+    const res = await window.zapret.removeService();
+    if (res && res.ok === false) {
+      showToast(res.error || 'Не удалось снять службу', 'error');
+      loadServiceStatus();
+      refreshState();
+      return;
+    }
     showToast('Служба снята', 'success');
   } else {
     const target = currentState.activeConfig || lastTestBest;
