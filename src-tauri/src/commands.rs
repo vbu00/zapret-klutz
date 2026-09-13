@@ -1110,8 +1110,27 @@ pub fn open_tg_proxy_link(app: AppHandle, state: State<AppState>) -> SimpleResul
 /// Напрямую через ShellExecuteW, а не `cmd /c start`: cmd разбирает строку
 /// заново и режет её по `&`, так что tg://proxy?server=…&port=…&secret=…
 /// доезжал до Telegram без порта и секрета — отсюда «неправильная ссылка».
-#[cfg(target_os = "windows")]
 fn open_url(target: &str) -> SimpleResult {
+    if shell_open(target) {
+        ok()
+    } else {
+        err("Не удалось открыть ссылку — нет приложения, которое её обрабатывает.")
+    }
+}
+
+/// Файлы и папки — тем же ShellExecuteW. `explorer <путь>` из Klutz,
+/// запущенного от администратора, молча ничего не открывал: код возврата
+/// explorer не значит ничего, и «Открыть» у снимка прогона не срабатывала.
+fn open_path(path: &std::path::Path) -> SimpleResult {
+    if shell_open(&path.to_string_lossy()) {
+        ok()
+    } else {
+        err("Не удалось открыть — Windows не нашла, чем.")
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn shell_open(target: &str) -> bool {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
@@ -1128,16 +1147,12 @@ fn open_url(target: &str) -> SimpleResult {
         )
     };
     // ShellExecute сигналит успех значением больше 32.
-    if res as isize > 32 {
-        ok()
-    } else {
-        err("Не удалось открыть ссылку — нет приложения, которое её обрабатывает.")
-    }
+    res as isize > 32
 }
 
 #[cfg(not(target_os = "windows"))]
-fn open_url(_target: &str) -> SimpleResult {
-    err("Открытие ссылок поддерживается только в Windows.")
+fn shell_open(_target: &str) -> bool {
+    false
 }
 
 /// Через плагин буфера обмена на стороне Rust: navigator.clipboard в WebView2
@@ -1162,10 +1177,7 @@ pub fn open_external_url(url: String) -> SimpleResult {
 #[tauri::command(async)]
 pub fn open_release_folder(state: State<AppState>) -> SimpleResult {
     match root_of(&state) {
-        Some(root) => {
-            crate::sys::run("explorer", &[&root.to_string_lossy()]);
-            ok()
-        }
+        Some(root) => open_path(&root),
         None => err("Релиз не загружен."),
     }
 }
@@ -1183,8 +1195,7 @@ pub fn open_result_file(state: State<AppState>, file_name: String) -> SimpleResu
             if !p.exists() {
                 return err("Файл не найден.");
             }
-            crate::sys::run("explorer", &[&p.to_string_lossy()]);
-            ok()
+            open_path(&p)
         }
         None => err("Релиз не загружен."),
     }
