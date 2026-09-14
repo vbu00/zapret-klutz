@@ -1312,7 +1312,9 @@ pub fn parse_groups(text: &str) -> (Vec<Group>, Vec<Skipped>) {
             }
             continue;
         }
-        if t.starts_with('#') {
+        // Заглушка — не сеть и не игра. Показанная группой «оператор не
+        // сохранён», она выглядела собранным адресом, которого нет.
+        if t.starts_with('#') || t == EMPTY_STUB {
             continue;
         }
         match groups.last_mut() {
@@ -1341,13 +1343,21 @@ pub fn merge_groups(existing: &str, groups: &[Group], skipped: &[Skipped]) -> St
         .filter(|l| !l.trim().starts_with("203.0.113.113"))
         .map(|l| l.to_string())
         .collect();
+    let чужие_адреса = base.iter().any(|l| {
+        let t = l.trim();
+        !t.is_empty() && !t.starts_with('#')
+    });
     let mut out = base.join("\r\n").trim_end().to_string();
     if !out.is_empty() {
         out.push_str("\r\n");
     }
     out.push_str(BLOCK_START);
     out.push_str("\r\n");
-    if сетей_нет {
+    // Заглушка нужна, только когда иначе список был бы пуст. Рядом с
+    // загруженным списком она вредна: и Klutz, и service.bat узнают режим
+    // «none» ровно по ней, и 32 тысячи строк считались бы пустым списком —
+    // а переключение режима из «none» перезаписывает файл без резервной копии.
+    if сетей_нет && !чужие_адреса {
         // Сетей не осталось, а пропущенное есть. Без этой строки в файле
         // были бы одни комментарии — для winws это пустой список, то есть
         // «без ограничения по адресу»: обход полез бы в каждый матч.
@@ -1398,7 +1408,9 @@ pub fn extract_block(text: &str) -> Vec<String> {
             inside = false;
             continue;
         }
-        if inside && !t.is_empty() && !t.starts_with('#') {
+        // Заглушку за собранный адрес не считаем: «1 сеть» на странице, где
+        // не собрано ничего, — это неправда.
+        if inside && !t.is_empty() && !t.starts_with('#') && t != EMPTY_STUB {
             out.push(t.to_string());
         }
     }
@@ -1962,7 +1974,28 @@ mod unit_tests {
             prefixes: 2395,
         }];
         let текст = merge_groups("", &[], &skipped);
-        assert_eq!(extract_block(&текст), vec![EMPTY_STUB], "{текст:?}");
+        assert!(текст.contains(EMPTY_STUB), "{текст:?}");
+        // Но собранной сетью заглушка не считается и группой не показывается.
+        assert!(extract_block(&текст).is_empty(), "{текст:?}");
+        assert!(parse_groups(&текст).0.is_empty(), "{текст:?}");
+        assert_eq!(parse_groups(&текст).1, skipped, "пропущенное на месте");
+    }
+
+    #[test]
+    fn в_загруженный_список_заглушку_не_кладём() {
+        // Живой случай: Rocket League на серверах Amazon. Всё пойманное —
+        // облако, сетей не набралось, а сам ipset-all загружен целиком. Заглушка
+        // в таком файле делала его «пустым» и для Klutz, и для service.bat.
+        let skipped = vec![Skipped {
+            addr: "35.181.49.176".into(),
+            asn: "16509".into(),
+            name: "Amazon.com, Inc.".into(),
+            prefixes: 18027,
+        }];
+        let загруженный = ["1.0.0.0/24", "1.1.1.0/24"].join("\r\n");
+        let текст = merge_groups(&загруженный, &[], &skipped);
+        assert!(!текст.contains(EMPTY_STUB), "{текст:?}");
+        assert!(текст.contains("1.0.0.0/24") && текст.contains("1.1.1.0/24"), "{текст:?}");
         assert_eq!(parse_groups(&текст).1, skipped, "пропущенное на месте");
     }
 

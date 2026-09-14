@@ -49,12 +49,21 @@ pub fn set_game_filter(root: &Path, mode: &str) -> Result<(), String> {
 /// ответит, а не пустой файл: winws всё равно получает список целей, просто
 /// такой, под который ничего живого не попадёт. Пустой файл («any») означал бы
 /// «без ограничения по IP, фильтруем только по порту».
+///
+/// Считаем по настоящим строкам. Раньше хватало, чтобы заглушка встретилась
+/// ГДЕ-ТО в файле, и загруженный список, в который она попала, выглядел
+/// пустым — а переключение из «none» перезаписывает файл без резервной копии.
+/// Комментарии для winws не адреса: файл из одних комментариев — это «any».
 pub fn ipset_mode_from(content: &str) -> String {
-    let has_lines = content.lines().any(|l| !l.trim().is_empty());
-    if !has_lines {
+    let real: Vec<&str> = content
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    if real.is_empty() {
         return "any".into();
     }
-    if content.contains("203.0.113.113/32") {
+    if real.iter().all(|l| *l == "203.0.113.113/32") {
         return "none".into();
     }
     "loaded".into()
@@ -115,5 +124,15 @@ mod unit_tests {
         assert_eq!(ipset_mode_from("   \n\n"), "any");
         assert_eq!(ipset_mode_from("203.0.113.113/32\n"), "none");
         assert_eq!(ipset_mode_from("1.2.3.0/24\n5.6.7.8\n"), "loaded");
+    }
+
+    #[test]
+    fn заглушка_внутри_загруженного_списка_не_делает_его_пустым() {
+        // Ровно так было на живой машине: 32 тысячи строк и блок Klutz, куда
+        // сбор положил заглушку, потому что все пойманные адреса облачные.
+        let файл = "1.0.0.0/24\n1.1.1.0/24\n# ─── klutz ───\n203.0.113.113/32\n# klutz-пропущено 35.181.49.176\n";
+        assert_eq!(ipset_mode_from(файл), "loaded");
+        assert_eq!(ipset_mode_from("# только комментарий\n"), "any");
+        assert_eq!(ipset_mode_from("203.0.113.113/32\n# klutz-пропущено 1.2.3.4\n"), "none");
     }
 }
