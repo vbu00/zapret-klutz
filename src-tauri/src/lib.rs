@@ -163,6 +163,7 @@ pub fn run() {
             commands::get_discord_quic,
             commands::set_discord_quic,
             commands::diagnose_discord,
+            commands::get_system_proxy,
             commands::get_custom_lists,
             commands::save_custom_lists,
             commands::export_settings,

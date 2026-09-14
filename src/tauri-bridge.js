@@ -157,6 +157,7 @@
     getDiscordQuic: () => invoke('get_discord_quic'),
     setDiscordQuic: (enabled) => invoke('set_discord_quic', { enabled }),
     diagnoseDiscord: () => invoke('diagnose_discord'),
+    getSystemProxy: () => invoke('get_system_proxy'),
     openExternalUrl: (url) => invoke('open_external_url', { url }),
     openReleaseFolder: () => invoke('open_release_folder'),
     getVersions: () => invoke('get_versions'),

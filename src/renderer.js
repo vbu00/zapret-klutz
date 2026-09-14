@@ -1882,6 +1882,18 @@ async function runAllTests(opts = {}) {
     return;
   }
   if (!(await ensureNoForeignService())) return;
+  // Прогон идёт напрямую, а Discord и браузеры — через системный прокси.
+  // Сказать до того, как человек поверит зелёным результатам.
+  window.zapret
+    .getSystemProxy()
+    .then((p) => {
+      if (p) {
+        showToast(`Включён прокси ${p.owner || p.server}`, 'warn', {
+          body: 'Тесты идут напрямую, а Discord и браузеры — через прокси. Результаты тестов к ним не относятся.',
+        });
+      }
+    })
+    .catch(() => {});
   testing = true;
   pickFailed = false;
   if (opts.btn) opts.btn.disabled = true;
@@ -2047,13 +2059,26 @@ function regressionCard(reg) {
     </div>`;
 }
 
+// Системный прокси: Discord и браузеры идут через него, а тесты — напрямую.
+// Ровно на этом ушёл час: тесты зелёные, а Discord висел, потому что шёл
+// через Hiddify и к обходу отношения не имел.
+function proxyCard(p) {
+  const кто = esc(p.owner || p.server);
+  return `<div class="card">
+      <div class="card-head"><div class="ch-left"><span class="ch-title">Включён системный прокси ${кто}</span></div></div>
+      <p class="game-note card-note">Discord и браузеры ходят через него, а тесты — напрямую, мимо прокси. Поэтому
+        зелёный тест не значит, что Discord работает через обход. Чтобы проверить обход, выключи ${кто}.</p>
+    </div>`;
+}
+
 async function loadTestsHistory() {
   const box = $('testsHistory');
-  const [res, healRes, reg] = await Promise.all([
+  const [res, healRes, reg, proxy] = await Promise.all([
     window.zapret.getTestHistory(),
     window.zapret.getHealLog(),
     // Сравнение с прежним релизом — не обязательное: не вышло, значит без карточки.
     window.zapret.getReleaseRegression().catch(() => null),
+    window.zapret.getSystemProxy().catch(() => null),
   ]);
 
   // Прогоны приходят от старого к новому — показываем свежие сверху.
@@ -2092,6 +2117,7 @@ async function loadTestsHistory() {
     : '';
 
   box.innerHTML = `
+    ${proxy ? proxyCard(proxy) : ''}
     ${reg ? regressionCard(reg) : ''}
     ${snapsCard}
     <div class="card">

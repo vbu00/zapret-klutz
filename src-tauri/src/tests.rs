@@ -170,6 +170,124 @@ pub fn check_stage2(wanted: &[String], text: &str) -> Stage2 {
     }
 }
 
+/// Больше стольких пропусков не повторяем: когда не поднялась половина
+/// конфигов, дело не в случайности, а в чём-то общем — драйвере, службе,
+/// антивирусе, — и второй прогон потратил бы ещё столько же времени впустую.
+pub const RETRY_MAX: usize = 5;
+
+/// Какие конфиги из списка релиза не попали в итоги полного прогона.
+///
+/// Скрипт пишет «Strategy failed to start» и идёт дальше, а конфиг просто
+/// отсутствует в итогах. На 1.10.2 так выпал ALT — и неясно было, сломан он
+/// или не успел подняться, пока предыдущий отпускал драйвер.
+pub fn skipped_configs(text: &str, configs: &[String]) -> Vec<String> {
+    let (rows, _) = parse_results(text);
+    // Итогов нет вовсе — это сбой прогона, а не пропуск отдельных конфигов.
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let bare = |s: &str| s.trim_end_matches(".bat").to_string();
+    let got: HashSet<String> = rows.iter().map(|r| bare(&r.config)).collect();
+    configs.iter().filter(|c| !got.contains(&bare(c))).cloned().collect()
+}
+
+/// Строки итогов повтора — в конец итогов полного прогона.
+///
+/// Отдельный файл повтора оставлять нельзя: он стал бы самым свежим, и
+/// самолечение, которое берёт рейтинг из самого свежего файла, знало бы
+/// только повторённые конфиги. Разбор итогов читает всё после
+/// «=== ANALYTICS ===», так что дописанные строки считаются наравне.
+pub fn merge_retry(full: &str, retry: &str) -> String {
+    let block = match retry.find("=== ANALYTICS ===") {
+        Some(i) => &retry[i..],
+        None => retry,
+    };
+    let lines: Vec<&str> = block.lines().filter(|l| STD_RE.is_match(l) || DPI_RE.is_match(l)).collect();
+    if lines.is_empty() {
+        return full.to_string();
+    }
+    let mut out = full.trim_end().to_string();
+    out.push_str("\r\n# Klutz: повторный запуск конфигов, которые не поднялись с первого раза\r\n");
+    for l in lines {
+        out.push_str(l.trim_end());
+        out.push_str("\r\n");
+    }
+    out
+}
+
+/// Полный прогон, а пропущенные скриптом конфиги — ещё раз, отдельно.
+///
+/// Со второго раза конфиг либо поднимается — тогда это была случайность, и
+/// его результат встаёт в общий рейтинг, — либо нет, и тогда честно говорим,
+/// что сломан, похоже, сам конфиг в этом релизе.
+pub fn run_full_with_retry(
+    app: &AppHandle,
+    root: &Path,
+    dpi: bool,
+    cancelled: impl Fn() -> bool,
+) -> Result<String, String> {
+    let text = run_test_script(app, root, dpi, None)?;
+    let Some(main_file) = newest_result_file(root) else { return Ok(text) };
+    let configs = crate::release::list_configs(root);
+    let missing = skipped_configs(&text, &configs);
+    let log = |line: String| {
+        let _ = app.emit("test-log", line);
+    };
+    if missing.is_empty() || cancelled() {
+        return Ok(text);
+    }
+    let names: Vec<String> = missing.iter().map(|m| m.trim_end_matches(".bat").to_string()).collect();
+    if missing.len() > RETRY_MAX {
+        log(format!(
+            "Не запустились {} конфигов: {}. Повторять не буду — столько сразу не бывает случайно, \
+             проверь драйвер WinDivert и антивирус.",
+            missing.len(),
+            names.join(", ")
+        ));
+        return Ok(text);
+    }
+    let nums: Vec<usize> =
+        missing.iter().filter_map(|m| configs.iter().position(|c| c == m).map(|i| i + 1)).collect();
+    log(format!(
+        "── Не запустились: {}. Пробую ещё раз отдельно: бывает, конфиг не успевает подняться, \
+         пока предыдущий отпускает драйвер ──",
+        names.join(", ")
+    ));
+    let retry = match run_test_script(app, root, dpi, Some(&nums)) {
+        Ok(t) => t,
+        Err(e) => {
+            log(format!("Повтор не удался: {e}. Результаты полного прогона сохранены."));
+            return Ok(text);
+        }
+    };
+    let retry_file = newest_result_file(root);
+    let merged = match check_stage2(&missing, &retry) {
+        Stage2::Ok | Stage2::Skipped(_) => Some(merge_retry(&text, &retry)),
+        Stage2::Mismatch | Stage2::Empty => {
+            log("Повтор прогнал не те конфиги — его результат отброшен.".into());
+            None
+        }
+    };
+    // Файл повтора убираем в любом случае — см. merge_retry.
+    if let Some(f) = retry_file.filter(|f| *f != main_file) {
+        let _ = fs::remove_file(f);
+    }
+    let Some(merged) = merged else { return Ok(text) };
+    fs::write(&main_file, &merged).map_err(|e| e.to_string())?;
+
+    let (rows, _) = parse_results(&retry);
+    for (m, name) in missing.iter().zip(&names) {
+        let bare = m.trim_end_matches(".bat");
+        match rows.iter().find(|r| r.config.trim_end_matches(".bat") == bare) {
+            Some(r) => log(format!("{name} со второго раза запустился: {} из {}.", r.ok, r.total(dpi))),
+            None => log(format!(
+                "{name} не запустился и со второго раза — похоже, сломан сам конфиг в этом релизе."
+            )),
+        }
+    }
+    Ok(merged)
+}
+
 /// stdout и stderr — разные типы, а обрабатываем их одинаково.
 enum Either {
     Out(std::process::ChildStdout),
@@ -460,6 +578,35 @@ mod unit_tests {
             ));
         }
         t
+    }
+
+    #[test]
+    fn пропущенные_конфиги_находятся_по_итогам() {
+        let итоги = "=== ANALYTICS ===\n\
+                     general (ALT11).bat : HTTP OK: 12, ERR: 24, UNSUP: 0, Ping OK: 16, Fail: 0\n\
+                     general.bat : HTTP OK: 17, ERR: 19, UNSUP: 0, Ping OK: 16, Fail: 0\n";
+        let configs: Vec<String> =
+            ["general (ALT).bat", "general (ALT11).bat", "general.bat"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(skipped_configs(итоги, &configs), vec!["general (ALT).bat"]);
+        // Итогов нет вовсе — это сбой, а не пропуск: повторять всё подряд нельзя.
+        assert!(skipped_configs("Script interrupted", &configs).is_empty());
+    }
+
+    #[test]
+    fn повтор_дописывается_в_итоги_полного_прогона() {
+        let полный = "шум\n=== ANALYTICS ===\n\
+                      general (ALT11).bat : HTTP OK: 12, ERR: 24, UNSUP: 0, Ping OK: 16, Fail: 0\n\
+                      Best config: general (ALT11).bat\n";
+        let повтор = "  > Running tests...\n=== ANALYTICS ===\n\
+                      general (ALT).bat : HTTP OK: 36, ERR: 0, UNSUP: 0, Ping OK: 17, Fail: 0\n\
+                      Best config: general (ALT).bat\n";
+        let склеено = merge_retry(полный, повтор);
+        let (rows, dpi) = parse_results(&склеено);
+        assert!(!dpi);
+        let names: Vec<&str> = rows.iter().map(|r| r.config.as_str()).collect();
+        assert_eq!(names, vec!["general (ALT11).bat", "general (ALT).bat"], "{склеено}");
+        // Повтор без строк итогов ничего не портит.
+        assert_eq!(merge_retry(полный, "Strategy failed to start"), полный);
     }
 
     #[test]

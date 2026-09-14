@@ -87,7 +87,7 @@ fn renderer_log() -> Option<String> {
 
 // ─────────── системный прокси ───────────
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Proxy {
     pub server: String,
     /// Программа, которая держит порт прокси, — Hiddify, v2rayN и подобные.
@@ -115,7 +115,8 @@ pub fn proxy_port(server: &str) -> Option<u16> {
     hostport.trim_end_matches('/').rsplit(':').next()?.parse().ok()
 }
 
-fn system_proxy() -> Option<Proxy> {
+/// Системный прокси Windows. `None` — выключен.
+pub fn system_proxy() -> Option<Proxy> {
     let out = crate::sys::run(
         "reg",
         &["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings"],

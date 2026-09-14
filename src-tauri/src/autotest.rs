@@ -120,7 +120,7 @@ fn maybe_run(app: &AppHandle) {
     // Тот же замок, что берёт кнопка «Подобрать стратегию». Раньше здесь
     // стояло присваивание `testing = true` в обход него — и два прогона
     // PowerShell могли идти одновременно, перетирая друг другу общий PID.
-    let Some(_run) = crate::state::TestRun::acquire(&state) else {
+    let Some(run) = crate::state::TestRun::acquire(&state) else {
         *LAST_ABORTED.lock().unwrap() = Some(std::time::Instant::now());
         return;
     };
@@ -132,7 +132,11 @@ fn maybe_run(app: &AppHandle) {
     save_state(app, &state);
 
     let before = state.persisted.lock().unwrap().active_config.clone();
-    let result = crate::tests::run_test_script(app, std::path::Path::new(&root), mode == "dpi", None);
+    // Тот же прогон с повтором незапустившихся, что и по кнопке: иначе
+    // автопрогон молча терял бы конфиг, который не поднялся случайно.
+    let result = crate::tests::run_full_with_retry(app, std::path::Path::new(&root), mode == "dpi", || {
+        run.cancelled()
+    });
     crate::commands::restore_after_tests(app, before);
 
     match result {

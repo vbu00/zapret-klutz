@@ -527,7 +527,7 @@ fn run_tests_inner(
     mode: &str,
 ) -> RunTestsResult {
     if mode != "funnel" {
-        return match crate::tests::run_test_script(app, root, mode == "dpi", None) {
+        return match crate::tests::run_full_with_retry(app, root, mode == "dpi", || run.cancelled()) {
             Ok(text) => RunTestsResult { ok: true, error: None, text },
             Err(e) => RunTestsResult { ok: false, error: Some(e), text: String::new() },
         };
@@ -2163,6 +2163,16 @@ pub fn set_discord_quic(enabled: bool) -> SimpleResult {
     }
 }
 
+/// Системный прокси Windows. `null` — выключен.
+///
+/// Тесты идут напрямую, а приложения вроде Discord — через системный прокси.
+/// Если он включён, зелёный тест ничего не говорит о Discord, и об этом надо
+/// сказать до того, как человек поверит результатам.
+#[tauri::command(async)]
+pub fn get_system_proxy() -> Option<crate::discorddiag::Proxy> {
+    crate::discorddiag::system_proxy()
+}
+
 /// «Почему Discord не запускается». До полуминуты: пробы сети идут по очереди.
 #[tauri::command(async)]
 pub fn diagnose_discord(state: State<AppState>) -> crate::discorddiag::Report {
@@ -2308,7 +2318,16 @@ pub fn list_releases(app: AppHandle, state: State<AppState>) -> ReleasesList {
 }
 
 #[tauri::command(async)]
-pub fn delete_release(app: AppHandle, folder_name: String) -> SimpleResult {
+pub fn delete_release(app: AppHandle, state: State<AppState>, folder_name: String) -> SimpleResult {
+    // Интерфейс кнопку у активного релиза прячет, но проверка нужна и здесь:
+    // из-под работающего winws папка удалилась бы наполовину — занятые
+    // winws.exe и драйвер остались бы, а конфиги и списки пропали.
+    if let Some(root) = root_of(&state) {
+        let dir = crate::releases::releases_dir(&app).join(&folder_name);
+        if safe_name(&folder_name) && root.starts_with(&dir) {
+            return err("Это текущий релиз — сначала переключись на другой.");
+        }
+    }
     match crate::releases::delete_release(&app, &folder_name) {
         Ok(()) => ok(),
         Err(e) => err(e),
