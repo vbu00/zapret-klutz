@@ -1,6 +1,6 @@
 [package]
 name = "klutz"
-version = "1.4.0-beta.1"
+version = "1.4.0-beta.2"
 description = "GUI for managing and testing zapret-discord-youtube DPI bypass configs"
 authors = ["vbu00"]
 edition = "2021"
