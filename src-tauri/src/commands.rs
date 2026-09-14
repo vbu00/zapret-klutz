@@ -572,6 +572,12 @@ fn run_tests_inner(
     root: &Path,
     mode: &str,
 ) -> RunTestsResult {
+    if mode == "tune" {
+        return match crate::tests::run_tune(app, root, || run.cancelled()) {
+            Ok(text) => RunTestsResult { ok: true, error: None, text },
+            Err(e) => RunTestsResult { ok: false, error: Some(e), text: String::new() },
+        };
+    }
     if mode != "funnel" {
         return match crate::tests::run_full_with_retry(app, root, mode == "dpi", || run.cancelled()) {
             Ok(text) => RunTestsResult { ok: true, error: None, text },

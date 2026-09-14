@@ -246,34 +246,19 @@ pub fn run_full_with_retry(
         ));
         return Ok(text);
     }
-    let nums: Vec<usize> =
-        missing.iter().filter_map(|m| configs.iter().position(|c| c == m).map(|i| i + 1)).collect();
     log(format!(
         "── Не запустились: {}. Пробую ещё раз отдельно: бывает, конфиг не успевает подняться, \
          пока предыдущий отпускает драйвер ──",
         names.join(", ")
     ));
-    let retry = match run_test_script(app, root, dpi, Some(&nums)) {
-        Ok(t) => t,
+    let (merged, retry) = match run_subset_into(app, root, dpi, &main_file, &text, &missing) {
+        Ok(Some(v)) => v,
+        Ok(None) => return Ok(text),
         Err(e) => {
             log(format!("Повтор не удался: {e}. Результаты полного прогона сохранены."));
             return Ok(text);
         }
     };
-    let retry_file = newest_result_file(root);
-    let merged = match check_stage2(&missing, &retry) {
-        Stage2::Ok | Stage2::Skipped(_) => Some(merge_retry(&text, &retry)),
-        Stage2::Mismatch | Stage2::Empty => {
-            log("Повтор прогнал не те конфиги — его результат отброшен.".into());
-            None
-        }
-    };
-    // Файл повтора убираем в любом случае — см. merge_retry.
-    if let Some(f) = retry_file.filter(|f| *f != main_file) {
-        let _ = fs::remove_file(f);
-    }
-    let Some(merged) = merged else { return Ok(text) };
-    fs::write(&main_file, &merged).map_err(|e| e.to_string())?;
 
     let (rows, _) = parse_results(&retry);
     for (m, name) in missing.iter().zip(&names) {
@@ -283,6 +268,137 @@ pub fn run_full_with_retry(
             None => log(format!(
                 "{name} не запустился и со второго раза — похоже, сломан сам конфиг в этом релизе."
             )),
+        }
+    }
+    Ok(merged)
+}
+
+/// Прогоняет выбранные конфиги и дописывает их итоги в файл полного прогона.
+///
+/// Возвращает склеенные итоги и итоги самого подпрогона; `None` — скрипт
+/// прогнал не то, и результат отброшен. Файл подпрогона удаляется в любом
+/// случае — см. `merge_retry`.
+pub fn run_subset_into(
+    app: &AppHandle,
+    root: &Path,
+    dpi: bool,
+    main_file: &Path,
+    full_text: &str,
+    names: &[String],
+) -> Result<Option<(String, String)>, String> {
+    let configs = crate::release::list_configs(root);
+    let nums: Vec<usize> =
+        names.iter().filter_map(|m| configs.iter().position(|c| c == m).map(|i| i + 1)).collect();
+    // Пустой список номеров скрипт понял бы как «все конфиги» — и вместо
+    // пары вариантов пошёл бы полный прогон на полчаса.
+    if nums.is_empty() || nums.len() != names.len() {
+        let _ = app.emit("test-log", "Не нашёл нужные конфиги в списке релиза — подпрогон пропущен.".to_string());
+        return Ok(None);
+    }
+    let sub = run_test_script(app, root, dpi, Some(&nums))?;
+    let sub_file = newest_result_file(root);
+    let merged = match check_stage2(names, &sub) {
+        Stage2::Ok | Stage2::Skipped(_) => Some(merge_retry(full_text, &sub)),
+        Stage2::Mismatch | Stage2::Empty => {
+            let _ = app.emit("test-log", "Подпрогон прогнал не те конфиги — его результат отброшен.".to_string());
+            None
+        }
+    };
+    if let Some(f) = sub_file.filter(|f| f.as_path() != main_file) {
+        let _ = fs::remove_file(f);
+    }
+    let Some(merged) = merged else { return Ok(None) };
+    fs::write(main_file, &merged).map_err(|e| e.to_string())?;
+    Ok(Some((merged, sub)))
+}
+
+/// Сколько лучших конфигов берём образцами для вариантов.
+pub const TUNE_TOP: usize = 2;
+
+/// «Вокруг лучших»: варианты двух лучших конфигов последнего прогона.
+///
+/// Раньше это делалось руками: «Добавить стратегии» от текущего конфига,
+/// потом полный прогон всех конфигов заново. Здесь образцы берутся по
+/// рейтингу — вариант лучшего чаще всего и выстреливает: у ALT11 шесть из
+/// десяти вариантов давали 36 из 36, — а тестами идут только новые
+/// варианты. Их итоги встают в общий рейтинг последнего прогона.
+pub fn run_tune(app: &AppHandle, root: &Path, cancelled: impl Fn() -> bool) -> Result<String, String> {
+    let log = |line: String| {
+        let _ = app.emit("test-log", line);
+    };
+    let main_file = newest_result_file(root)
+        .ok_or("Сначала прогони тесты: варианты подбираются вокруг лучших по последнему прогону.")?;
+    let text = fs::read_to_string(&main_file).map_err(|e| e.to_string())?;
+    let (rows, dpi) = parse_results(&text);
+    if rows.is_empty() {
+        return Err("В последнем прогоне нет итогов — прогони тесты заново.".into());
+    }
+    let bare = |s: &str| s.trim_end_matches(".bat").to_string();
+
+    let mut ranked: Vec<&ResultRow> = rows.iter().filter(|r| !crate::strategies::is_variant(&r.config)).collect();
+    ranked.sort_by(|a, b| rank_desc(a, b, dpi));
+    let mut templates: Vec<String> = Vec::new();
+    for r in ranked {
+        if templates.len() == TUNE_TOP {
+            break;
+        }
+        let configs = crate::release::list_configs(root);
+        let Some(name) = configs.iter().find(|c| bare(c) == bare(&r.config)).cloned() else { continue };
+        let уже =
+            configs.iter().any(|c| crate::strategies::template_of(c).as_deref() == Some(name.as_str()));
+        if !уже {
+            // Конфиг без точки разреза образцом не годится — берём следующий.
+            if let Err(e) = crate::strategies::generate(root, &name) {
+                log(format!("{}: {e}", bare(&name)));
+                continue;
+            }
+        }
+        templates.push(name);
+    }
+    if templates.is_empty() {
+        return Err("Ни у одного из лучших конфигов нет точки разреза — подбирать варианты не из чего.".into());
+    }
+
+    let untested: Vec<String> = crate::release::list_configs(root)
+        .into_iter()
+        .filter(|c| crate::strategies::template_of(c).is_some_and(|t| templates.contains(&t)))
+        .filter(|c| !rows.iter().any(|r| bare(&r.config) == bare(c)))
+        .collect();
+    let образцы: Vec<String> = templates.iter().map(|t| bare(t)).collect();
+    let merged = if untested.is_empty() || cancelled() {
+        text.clone()
+    } else {
+        log(format!("── Варианты вокруг {}: {} конфигов ──", образцы.join(" и "), untested.len()));
+        match run_subset_into(app, root, dpi, &main_file, &text, &untested)? {
+            Some((m, _)) => m,
+            None => return Ok(text),
+        }
+    };
+
+    let (all, _) = parse_results(&merged);
+    for t in &templates {
+        let base = all.iter().find(|r| bare(&r.config) == bare(t));
+        let best = all
+            .iter()
+            .filter(|r| crate::strategies::template_of(&r.config).as_deref() == Some(t.as_str()))
+            .min_by(|a, b| rank_desc(a, b, dpi));
+        match (base, best) {
+            (Some(b), Some(v)) if v.score(dpi) > b.score(dpi) => log(format!(
+                "{}: лучший вариант — {}, {} из {} (сам конфиг: {} из {}).",
+                bare(t),
+                bare(&v.config),
+                v.ok,
+                v.total(dpi),
+                b.ok,
+                b.total(dpi)
+            )),
+            (Some(b), _) => log(format!(
+                "{}: ни один вариант не лучше самого конфига ({} из {}).",
+                bare(t),
+                b.ok,
+                b.total(dpi)
+            )),
+            _ => {}
         }
     }
     Ok(merged)
