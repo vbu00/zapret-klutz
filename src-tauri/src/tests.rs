@@ -312,6 +312,109 @@ pub fn run_subset_into(
     Ok(Some((merged, sub)))
 }
 
+/// Отметка в файле итогов: лучший по проверке «как у приложений».
+pub const APP_BEST_MARK: &str = "# Klutz-app-best: ";
+
+/// Сколько лучших по тестам проверяем так, как ходят приложения.
+pub const APP_CHECK_TOP: usize = 3;
+
+/// Лучший по проверке приложений, если отметка есть.
+pub fn app_best(text: &str) -> Option<String> {
+    text.lines()
+        .rev()
+        .find_map(|l| l.trim().strip_prefix(APP_BEST_MARK.trim_end()).map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+/// Кого считать лучшим после проверки: больше пройденных проверок, при
+/// равенстве — кто выше по тестам. `None` — первый и так лучший.
+pub fn choose_app_best(passed: &[usize]) -> Option<usize> {
+    let first = *passed.first()?;
+    let (i, max) = passed
+        .iter()
+        .enumerate()
+        .fold((0, first), |acc, (i, &p)| if p > acc.1 { (i, p) } else { acc });
+    (i != 0 && max > first).then_some(i)
+}
+
+/// Лучшие по тестам — ещё раз, так, как ходят приложения.
+///
+/// Тесты zapret делают по короткому запросу на цель. Discord и YouTube
+/// качают мегабайты и держат долгие соединения — и конфиг бывает зелёным в
+/// тестах, а Discord на нём висит на «Starting...». Здесь три лучших по
+/// очереди поднимаются и проверяются тем, что нужно приложениям: сервер
+/// обновлений, страница и мегабайт скрипта Discord, сервер сообщений, объём
+/// YouTube. Если ниже по списку проходит больше — лучшим отмечается он.
+pub fn app_check_top(app: &AppHandle, root: &Path, text: &str, cancelled: impl Fn() -> bool) -> String {
+    let (rows, dpi) = parse_results(text);
+    let mut ranked: Vec<&ResultRow> = rows.iter().filter(|r| r.score(dpi) > 0.0).collect();
+    ranked.sort_by(|a, b| rank_desc(a, b, dpi));
+    let top: Vec<String> = ranked.iter().take(APP_CHECK_TOP).map(|r| r.config.clone()).collect();
+    if top.len() < 2 || cancelled() {
+        return text.to_string();
+    }
+    let Some(main_file) = newest_result_file(root) else { return text.to_string() };
+    let log = |line: String| {
+        let _ = app.emit("test-log", line);
+    };
+    log("── Лучших проверяю так, как ходят Discord и YouTube ──".into());
+    let configs = crate::release::list_configs(root);
+    let (mut lines, mut passed, mut names) = (Vec::new(), Vec::new(), Vec::new());
+    for name in &top {
+        if cancelled() {
+            break;
+        }
+        let bare = name.trim_end_matches(".bat");
+        let Some(file) = configs.iter().find(|c| c.trim_end_matches(".bat") == bare) else { continue };
+        if let Err(e) = crate::winws::spawn_winws(app, root, file) {
+            log(format!("{bare}: не запустился — {e}"));
+            continue;
+        }
+        // WinDivert встаёт не мгновенно: без паузы первые пробы шли бы мимо обхода.
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let checks = crate::discorddiag::app_checks();
+        let n = checks.iter().filter(|c| c.ok == Some(true)).count();
+        let line = format!(
+            "{bare}: {}",
+            checks
+                .iter()
+                .map(|c| format!("{} {}", if c.ok == Some(true) { "✓" } else { "✗" }, c.label.to_lowercase()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        log(format!("{line} — {n} из {}", checks.len()));
+        lines.push(line);
+        passed.push(n);
+        names.push(file.clone());
+    }
+    if lines.is_empty() {
+        return text.to_string();
+    }
+    let mut out = text.trim_end().to_string();
+    out.push_str("\r\n# Klutz: лучшие по тестам, проверенные так, как ходят приложения\r\n");
+    for l in &lines {
+        out.push_str("# ");
+        out.push_str(l);
+        out.push_str("\r\n");
+    }
+    if let Some(i) = choose_app_best(&passed) {
+        log(format!(
+            "По-настоящему лучше {}: проверок пройдено {} против {} у {}.",
+            names[i].trim_end_matches(".bat"),
+            passed[i],
+            passed[0],
+            names[0].trim_end_matches(".bat")
+        ));
+        out.push_str(APP_BEST_MARK);
+        out.push_str(&names[i]);
+        out.push_str("\r\n");
+    }
+    if fs::write(&main_file, &out).is_err() {
+        return text.to_string();
+    }
+    out
+}
+
 /// Сколько лучших конфигов берём образцами для вариантов.
 pub const TUNE_TOP: usize = 2;
 
@@ -694,6 +797,29 @@ mod unit_tests {
             ));
         }
         t
+    }
+
+    #[test]
+    fn отметка_лучшего_по_приложениям() {
+        let итоги = "=== ANALYTICS ===\n\
+                     general (ALT11).bat : HTTP OK: 36, ERR: 0, UNSUP: 0, Ping OK: 17, Fail: 0\n\
+                     # Klutz: лучшие по тестам, проверенные так, как ходят приложения\n\
+                     # Klutz-app-best: general (ALT12).bat\n";
+        assert_eq!(app_best(итоги).as_deref(), Some("general (ALT12).bat"));
+        assert_eq!(app_best("=== ANALYTICS ===\n"), None);
+        // Строка отметки не считается строкой итогов.
+        assert_eq!(parse_results(итоги).0.len(), 1);
+    }
+
+    #[test]
+    fn лучший_после_проверки_приложений() {
+        // Первый прошёл всё — он и лучший, отметка не нужна.
+        assert_eq!(choose_app_best(&[5, 5, 3]), None);
+        // Второй прошёл больше первого — он.
+        assert_eq!(choose_app_best(&[3, 5, 4]), Some(1));
+        // При равенстве второго и третьего берём того, кто выше по тестам.
+        assert_eq!(choose_app_best(&[2, 4, 4]), Some(1));
+        assert_eq!(choose_app_best(&[]), None);
     }
 
     #[test]

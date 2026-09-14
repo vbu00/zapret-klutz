@@ -399,12 +399,39 @@ pub fn run(bypass: Option<String>) -> Report {
     ];
 
     let mut failed = Vec::new();
+    discord_probes(&mut checks, &mut failed);
+
+    checks.push(Check {
+        label: "Discord без QUIC".into(),
+        ok: None,
+        detail: if quic_rule { "включено" } else { "выключено" }.into(),
+    });
+
+    let facts = Facts { installed: !exes.is_empty(), stage, proxy, bypass_on: bypass.is_some(), net_failed: failed, quic_rule };
+    let (verdict, advice, action) = decide(&facts);
+    Report { verdict, advice, action, checks }
+}
+
+/// То, что нужно Discord и YouTube, — через текущий обход. Для проверки
+/// лучших конфигов после прогона: короткий запрос тестов этого не видит.
+pub fn app_checks() -> Vec<Check> {
+    let mut checks = Vec::new();
+    let mut failed = Vec::new();
+    discord_probes(&mut checks, &mut failed);
+    let yt = crate::probe::http_probe_volume("www.youtube.com", 443, None, 15);
+    let ok = yt.verdict == crate::probe::VolumeVerdict::Clear;
+    добавить(&mut checks, &mut failed, "YouTube", ok, yt.note);
+    checks
+}
+
+/// Что Discord качает при запуске, через обход напрямую.
+fn discord_probes(checks: &mut Vec<Check>, failed: &mut Vec<String>) {
     let upd = curl(
         &[],
         "https://updates.discord.com/distributions/app/manifests/latest?channel=stable&platform=win&arch=x64",
         15,
     );
-    добавить(&mut checks, &mut failed, "Сервер обновлений Discord", upd.code == 200 && upd.bytes > 1000, ответ(&upd));
+    добавить(checks, failed, "Сервер обновлений Discord", upd.code == 200 && upd.bytes > 1000, ответ(&upd));
 
     let (code, html) = curl_body("https://discord.com/app");
     let page_ok = code == 200 && html.len() > 10_000;
@@ -413,7 +440,7 @@ pub fn run(bypass: Option<String>) -> Report {
     } else {
         format!("код {code}, {}", размер(html.len() as u64))
     };
-    добавить(&mut checks, &mut failed, "Страница приложения", page_ok, page_detail);
+    добавить(checks, failed, "Страница приложения", page_ok, page_detail);
 
     // Мегабайт главного скрипта: блокировку «по объёму» — обрыв после
     // 16–20 КБ — короткий запрос не видит, а Discord качает именно мегабайты.
@@ -425,7 +452,7 @@ pub fn run(bypass: Option<String>) -> Report {
         } else {
             ответ(&a)
         };
-        добавить(&mut checks, &mut failed, "Загрузка файла приложения", ok, detail);
+        добавить(checks, failed, "Загрузка файла приложения", ok, detail);
     }
 
     let gw = curl(
@@ -450,17 +477,7 @@ pub fn run(bypass: Option<String>) -> Report {
     } else {
         ответ(&gw)
     };
-    добавить(&mut checks, &mut failed, "Сервер сообщений", gw.code == 101 && gw.bytes > 0, gw_detail);
-
-    checks.push(Check {
-        label: "Discord без QUIC".into(),
-        ok: None,
-        detail: if quic_rule { "включено" } else { "выключено" }.into(),
-    });
-
-    let facts = Facts { installed: !exes.is_empty(), stage, proxy, bypass_on: bypass.is_some(), net_failed: failed, quic_rule };
-    let (verdict, advice, action) = decide(&facts);
-    Report { verdict, advice, action, checks }
+    добавить(checks, failed, "Сервер сообщений", gw.code == 101 && gw.bytes > 0, gw_detail);
 }
 
 #[cfg(test)]

@@ -1763,6 +1763,15 @@ function parseResults(text) {
   if (mode === 'dpi') rows.sort((a, b) => b.ok - a.ok || a.blocked - b.blocked || a.err - b.err);
   else rows.sort((a, b) => b.ok - a.ok || b.pingOk - a.pingOk || a.err - b.err);
 
+  // Отметка проверки «как у приложений»: лучший по тестам мог не пройти то,
+  // что нужно Discord и YouTube, — тогда первым идёт тот, кто прошёл.
+  const appBest = (block.match(/^# Klutz-app-best: (.+?)\s*$/m) || [])[1];
+  if (appBest) {
+    const bare = (s) => s.replace(/\.bat$/i, '');
+    const i = rows.findIndex((r) => bare(r.config) === bare(appBest));
+    if (i > 0) rows.unshift(rows.splice(i, 1)[0]);
+  }
+
   return { rows, best: rows[0].config, mode };
 }
 

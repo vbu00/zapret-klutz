@@ -459,6 +459,15 @@ pub fn latest_ranking(root: &std::path::Path) -> Vec<String> {
     };
     let (mut rows, dpi) = crate::tests::parse_results(&text);
     rows.sort_by(|a, b| crate::tests::rank_desc(a, b, dpi));
+    // Проверка «как у приложений» могла поднять конфиг выше лучшего по тестам:
+    // зелёный в тестах, на котором Discord висит, первым не ставим.
+    if let Some(best) = crate::tests::app_best(&text) {
+        let bare = best.trim_end_matches(".bat");
+        if let Some(i) = rows.iter().position(|r| r.config.trim_end_matches(".bat") == bare) {
+            let r = rows.remove(i);
+            rows.insert(0, r);
+        }
+    }
     rows.into_iter()
         .map(|r| {
             if r.config.to_lowercase().ends_with(".bat") {

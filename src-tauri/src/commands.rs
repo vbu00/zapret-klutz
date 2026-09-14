@@ -719,7 +719,11 @@ fn run_tests_inner(
     }
     if mode != "funnel" {
         return match crate::tests::run_full_with_retry(app, root, mode == "dpi", || run.cancelled()) {
-            Ok(text) => RunTestsResult { ok: true, error: None, text },
+            Ok(text) => RunTestsResult {
+                ok: true,
+                error: None,
+                text: crate::tests::app_check_top(app, root, &text, || run.cancelled()),
+            },
             Err(e) => RunTestsResult { ok: false, error: Some(e), text: String::new() },
         };
     }
