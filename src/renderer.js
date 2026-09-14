@@ -823,7 +823,13 @@ $('aboutUpdateBtn').onclick = async () => {
   note.innerHTML = parts.join('<br>');
   note.classList.toggle('hidden', !parts.length);
   const getKlutz = $('aboutGetKlutz');
-  if (getKlutz) getKlutz.onclick = () => window.zapret.openExternalUrl(res.klutz.url || KLUTZ_RELEASES_URL);
+  // То же окно, что и при проверке по расписанию: что нового и установить.
+  if (getKlutz) {
+    getKlutz.onclick = () => {
+      aboutOverlay.classList.add('hidden');
+      showKlutzUpdate(true);
+    };
+  }
   const go = $('aboutGoUpdateZapret');
   if (go) {
     go.onclick = () => {
@@ -899,13 +905,71 @@ async function checkKlutzUpdateDaily() {
     localStorage.setItem(KLUTZ_SEEN_KEY, u.latest);
   } catch {}
   $('aboutBtn').classList.toggle('has-update', isNewer(u));
-  if (isNewer(u)) {
-    showToast(`Вышел Klutz ${u.latest}`, 'info', {
-      body: `У вас ${u.current}. Новая версия ставится поверх, настройки сохранятся.`,
-      actionLabel: 'Скачать',
-      onAction: () => window.zapret.openExternalUrl(u.url || KLUTZ_RELEASES_URL),
-    });
+  if (isNewer(u)) showKlutzUpdate(false);
+}
+
+// ─────────── Вышла новая версия Klutz ───────────
+//
+// Раньше было уведомление со ссылкой на страницу релиза — дальше человек сам
+// искал нужный файл, качал и запускал. Теперь окно показывает, что в новой
+// версии, и ставит её в одно нажатие. «Позже» запоминает версию, чтобы окно
+// не всплывало заново; точка на «О программе» остаётся.
+const KLUTZ_DISMISSED_KEY = 'klutzUpdateDismissed';
+
+async function showKlutzUpdate(force) {
+  let rel;
+  try {
+    rel = await window.zapret.getKlutzRelease();
+  } catch {
+    if (force) window.zapret.openExternalUrl(KLUTZ_RELEASES_URL);
+    return;
   }
+  const v = await window.zapret.getVersions();
+  if (cmpVer(rel.version, v.app) <= 0) return;
+  let dismissed = null;
+  try {
+    dismissed = localStorage.getItem(KLUTZ_DISMISSED_KEY);
+  } catch {}
+  if (!force && dismissed === rel.version) return;
+
+  $('klutzUpdateTitle').textContent = `Вышел Klutz ${rel.version}`;
+  $('klutzUpdateNotes').textContent =
+    `У тебя ${v.app}. Новая версия ставится поверх, настройки сохранятся.\n\n` +
+    (rel.notes || 'Что изменилось — на странице релиза.');
+  const progress = $('klutzUpdateProgress');
+  progress.classList.add('hidden');
+  const install = $('klutzUpdateInstallBtn');
+  install.disabled = false;
+  install.classList.toggle('hidden', !rel.asset);
+  $('klutzUpdateOverlay').classList.remove('hidden');
+
+  $('klutzUpdateLaterBtn').onclick = () => {
+    try {
+      localStorage.setItem(KLUTZ_DISMISSED_KEY, rel.version);
+    } catch {}
+    $('klutzUpdateOverlay').classList.add('hidden');
+  };
+  $('klutzUpdatePageBtn').onclick = () => window.zapret.openExternalUrl(rel.url || KLUTZ_RELEASES_URL);
+  install.onclick = async () => {
+    install.disabled = true;
+    progress.classList.remove('hidden');
+    progress.textContent = 'Скачиваю…';
+    const mb = (b) => (b / 1024 / 1024).toFixed(1);
+    const off = window.zapret.onKlutzUpdateProgress((pct) => {
+      progress.textContent =
+        pct >= 100
+          ? 'Скачано, запускаю установщик…'
+          : `Скачиваю… ${pct}%` + (rel.size ? ` · ${mb((rel.size * pct) / 100)} из ${mb(rel.size)} МБ` : '');
+    });
+    const res = await window.zapret.installKlutzUpdate();
+    off();
+    if (res && res.ok === false) {
+      install.disabled = false;
+      progress.textContent = res.error || 'Не удалось скачать — открой страницу релиза.';
+      return;
+    }
+    progress.textContent = 'Установщик запущен — Klutz сейчас закроется.';
+  };
 }
 // Не в первые секунды: при старте и так идут проверка связи и подъём прокси.
 setTimeout(checkKlutzUpdateDaily, 15000);

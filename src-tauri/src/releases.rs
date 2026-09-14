@@ -146,7 +146,22 @@ pub fn download_latest(app: &AppHandle) -> Result<PathBuf, String> {
         ));
     }
     let dest = releases_dir(app).join(&info.name);
+    download_file(app, &info.url, &dest, info.size, "download-progress")?;
+    Ok(dest)
+}
 
+/// Скачивание файла с GitHub с живым прогрессом в событие `event`.
+///
+/// Общее для релиза zapret и установщика Klutz: и то и другое потом
+/// запускается с правами администратора, так что правила одни — только https,
+/// обрыв при зависании, сверка размера с заявленным.
+pub fn download_file(
+    app: &AppHandle,
+    url: &str,
+    dest: &Path,
+    expected_size: u64,
+    event: &str,
+) -> Result<(), String> {
     #[allow(unused_mut)]
     let mut cmd = Command::new(sys::system_exe("curl.exe"));
     cmd.args([
@@ -173,7 +188,7 @@ pub fn download_latest(app: &AppHandle) -> Result<PathBuf, String> {
         "User-Agent: klutz",
         "-o",
         &dest.to_string_lossy(),
-        &info.url,
+        url,
     ])
     .stderr(std::process::Stdio::piped());
     #[cfg(target_os = "windows")]
@@ -183,6 +198,7 @@ pub fn download_latest(app: &AppHandle) -> Result<PathBuf, String> {
     if let Some(stderr) = child.stderr.take() {
         use std::io::Read;
         let app2 = app.clone();
+        let event2 = event.to_string();
         std::thread::spawn(move || {
             let mut reader = stderr;
             let mut buf = [0u8; 256];
@@ -194,7 +210,7 @@ pub fn download_latest(app: &AppHandle) -> Result<PathBuf, String> {
                 acc.push_str(&String::from_utf8_lossy(&buf[..n]));
                 // curl рисует прогресс через возврат каретки, а не перевод строки.
                 if let Some(pct) = acc.rsplit(['\r', '\n']).find_map(parse_percent) {
-                    let _ = app2.emit("download-progress", pct);
+                    let _ = app2.emit(&event2, pct);
                 }
                 if acc.len() > 4096 {
                     acc.clear();
@@ -204,31 +220,31 @@ pub fn download_latest(app: &AppHandle) -> Result<PathBuf, String> {
     }
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
-        let _ = fs::remove_file(&dest);
+        let _ = fs::remove_file(dest);
         return Err("Скачивание не удалось.".into());
     }
-    // Размер архива известен из ответа API — сверяем. Хэша апстрим не
-    // публикует, так что подмену это не ловит; обрыв и усечение — ловит, а
-    // из этого архива потом запускается winws.exe с правами администратора.
-    if info.size > 0 {
-        match fs::metadata(&dest) {
-            Ok(m) if m.len() == info.size => {}
+    // Размер известен из ответа API — сверяем. Хэша не публикуется, так что
+    // подмену это не ловит; обрыв и усечение — ловит, а скачанное потом
+    // запускается с правами администратора.
+    if expected_size > 0 {
+        match fs::metadata(dest) {
+            Ok(m) if m.len() == expected_size => {}
             Ok(m) => {
-                let _ = fs::remove_file(&dest);
+                let _ = fs::remove_file(dest);
                 return Err(format!(
-                    "Размер скачанного архива не совпал с заявленным: {} байт вместо {}. Файл удалён.",
+                    "Размер скачанного файла не совпал с заявленным: {} байт вместо {}. Файл удалён.",
                     m.len(),
-                    info.size
+                    expected_size
                 ));
             }
             Err(e) => {
-                let _ = fs::remove_file(&dest);
-                return Err(format!("Не удалось проверить скачанный архив: {e}"));
+                let _ = fs::remove_file(dest);
+                return Err(format!("Не удалось проверить скачанный файл: {e}"));
             }
         }
     }
-    let _ = app.emit("download-progress", 100u8);
-    Ok(dest)
+    let _ = app.emit(event, 100u8);
+    Ok(())
 }
 
 fn parse_percent(chunk: &str) -> Option<u8> {

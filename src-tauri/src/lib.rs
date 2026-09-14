@@ -16,6 +16,7 @@ mod discorddiag;
 mod favicon;
 mod gamescan;
 mod history;
+mod klutzupdate;
 mod maintenance;
 mod monitor;
 mod notify;
@@ -171,6 +172,8 @@ pub fn run() {
             commands::get_whats_new,
             commands::trial_latest_release,
             commands::developer_report,
+            commands::get_klutz_release,
+            commands::install_klutz_update,
             commands::save_report,
             commands::get_custom_lists,
             commands::save_custom_lists,

@@ -161,6 +161,13 @@
     getWhatsNew: (since) => invoke('get_whats_new', { since: since || null }),
     trialLatestRelease: () => invoke('trial_latest_release'),
     developerReport: () => invoke('developer_report'),
+    // Отказ приходит отказом промиса со строкой ошибки.
+    getKlutzRelease: () => invoke('get_klutz_release'),
+    installKlutzUpdate: () => invoke('install_klutz_update'),
+    onKlutzUpdateProgress: (cb) => {
+      const un = listen('klutz-update-progress', (e) => cb(e.payload));
+      return () => un.then((f) => f());
+    },
     saveReport: (text) => invoke('save_report', { text }),
     // Отказ приходит отказом промиса со строкой ошибки, успех — именем конфига.
     importOldConfig: (oldRoot, config) => invoke('import_old_config', { oldRoot, config }),

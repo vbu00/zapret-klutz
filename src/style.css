@@ -2098,6 +2098,8 @@ html[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,.62); }
 .whats-new-list summary { cursor: pointer; font-size: 14.5px; line-height: 1.5; color: var(--tx-2); }
 .modal-card .whats-new-list details p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--tx-4); }
 .update-notes-actions { margin-top: 10px; }
+.klutz-update-notes { max-height: 50vh; overflow-y: auto; margin: 0 0 16px; white-space: pre-wrap; font-size: 13.5px; line-height: 1.6; color: var(--tx-3); }
+.klutz-update-progress { margin: -4px 0 14px; font-size: 13.5px; color: var(--tx-3); }
 .modal-card h3 { margin: 0 0 14px; font-size: 17px; font-weight: 700; color: var(--tx); }
 .wizard-choice-actions { display: flex; flex-direction: column; gap: 8px; }
 .wizard-choice-actions .btn { width: 100%; text-align: center; }

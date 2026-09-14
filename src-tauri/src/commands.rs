@@ -1684,6 +1684,48 @@ fn klutz_update(app: &AppHandle) -> ComponentUpdate {
     }
 }
 
+/// Последний релиз Klutz: что в нём и где установщик.
+#[tauri::command(async)]
+pub fn get_klutz_release() -> Result<crate::klutzupdate::KlutzRelease, String> {
+    crate::klutzupdate::latest()
+}
+
+/// Скачивает установщик новой версии Klutz и запускает его, а сам Klutz
+/// закрывается: установщик не может заменить файлы запущенного приложения.
+#[tauri::command(async)]
+pub fn install_klutz_update(app: AppHandle) -> SimpleResult {
+    let rel = match crate::klutzupdate::latest() {
+        Ok(r) => r,
+        Err(e) => return err(e),
+    };
+    let Some(url) = rel.asset.clone() else {
+        return err("В релизе нет установщика — скачай его со страницы релиза.");
+    };
+    // Скачанное запустится с правами администратора — только GitHub.
+    if !crate::releases::download_url_allowed(&url) {
+        return err(format!("GitHub вернул ссылку на неожиданный адрес, скачивание отменено: {url}"));
+    }
+    let name = format!("Klutz_{}_x64-setup.exe", rel.version);
+    if !safe_name(&name) {
+        return err("Неожиданный номер версии в релизе — скачивание отменено.");
+    }
+    let dest = std::env::temp_dir().join(&name);
+    if let Err(e) = crate::releases::download_file(&app, &url, &dest, rel.size, "klutz-update-progress") {
+        return err(e);
+    }
+    if !shell_open(&dest.to_string_lossy()) {
+        return err(format!("Установщик скачан, но не запустился. Он лежит тут: {}", dest.display()));
+    }
+    // Пауза — чтобы окно успело сказать, что происходит, а установщик —
+    // подняться до того, как Klutz отпустит файлы.
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        app2.exit(0);
+    });
+    ok()
+}
+
 /// Проверка при запуске — только Klutz, без zapret и прокси.
 #[tauri::command(async)]
 pub fn check_klutz_update(app: AppHandle) -> ComponentUpdate {

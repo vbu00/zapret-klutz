@@ -298,6 +298,15 @@
     getSystemProxy: async () => ({ server: 'http://127.0.0.1:12334', owner: 'Hiddify.exe' }),
     developerReport: async () => '— Klutz —\nKlutz: 1.4.0-beta.2\nРелиз zapret: zapret-discord-youtube-1.10.2 (версия 1.10.2)\n\n— Обход —\nСтратегия: general (ALT12)',
     saveReport: noop,
+    getKlutzRelease: async () => ({
+      version: '1.4.0',
+      notes: 'Главное\n\nСбор адресов игры — одна кнопка, Game Filter включается сам.\n«Проверить и обновить» zapret без риска.',
+      url: 'https://github.com/vbu00/zapret-klutz/releases/tag/v1.4.0',
+      asset: 'https://github.com/vbu00/zapret-klutz/releases/download/v1.4.0/Klutz_1.4.0_x64-setup.exe',
+      size: 12467453,
+    }),
+    installKlutzUpdate: noop,
+    onKlutzUpdateProgress: () => () => {},
     trialLatestRelease: async () => ({
       ok: true,
       error: null,
