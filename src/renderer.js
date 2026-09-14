@@ -2686,6 +2686,8 @@ function renderGameFilterNote(mode, el) {
 const autoUpdateToggle = $('autoUpdateToggle');
 
 async function loadToggles() {
+  // Правило брандмауэра от релиза не зависит — грузим до проверки, есть ли он.
+  loadDiscordQuic();
   const t = await window.zapret.getToggles();
   if (!t || !t.gameMode) return;
   gameFilterSeg.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.gf === t.gameMode));
@@ -2725,6 +2727,41 @@ $('ipsetModeBtn').onclick = async () => {
   const res = await window.zapret.cycleIpsetMode();
   if (!res.ok) showToast(res.error || 'Не удалось переключить', 'error');
   loadToggles();
+};
+
+// «Discord без QUIC» — правило брандмауэра, а не файл релиза: живёт своей
+// жизнью и от загруженного релиза не зависит.
+const discordQuicToggle = $('discordQuicToggle');
+
+// Через $(), а не константу выше: loadToggles зовёт это и при старте, когда
+// до объявления константы выполнение могло ещё не дойти.
+async function loadDiscordQuic() {
+  let s;
+  try {
+    s = await window.zapret.getDiscordQuic();
+  } catch {
+    return;
+  }
+  $('discordQuicToggle').classList.toggle('on', !!s.enabled);
+  if (!s.installed && !s.enabled) {
+    $('discordQuicDesc').textContent = 'Discord не найден — правило не к чему привязать. Установи Discord и открой настройки снова.';
+  }
+}
+
+discordQuicToggle.onclick = async () => {
+  const wanted = !discordQuicToggle.classList.contains('on');
+  discordQuicToggle.classList.toggle('on', wanted);
+  const res = await window.zapret.setDiscordQuic(wanted);
+  if (!res.ok) {
+    discordQuicToggle.classList.toggle('on', !wanted);
+    showToast(res.error || 'Не удалось изменить правило брандмауэра', 'error');
+    return;
+  }
+  // Уже открытый Discord держит соединения и помнит про QUIC — без
+  // перезапуска переключатель ничего не изменит, и об этом надо сказать.
+  showToast(wanted ? 'Discord без QUIC включён' : 'Discord снова может ходить по QUIC', 'success', {
+    body: 'Перезапусти Discord полностью: в трее «Выйти из Discord», потом открой снова.',
+  });
 };
 
 autoUpdateToggle.onclick = async () => {

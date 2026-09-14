@@ -154,6 +154,8 @@
     // по релизам, и файл прежнего релиза лежит не в текущей папке.
     openResultFile: (fileName, release) => invoke('open_result_file', { fileName, release: release || null }),
     getReleaseRegression: () => invoke('get_release_regression'),
+    getDiscordQuic: () => invoke('get_discord_quic'),
+    setDiscordQuic: (enabled) => invoke('set_discord_quic', { enabled }),
     openExternalUrl: (url) => invoke('open_external_url', { url }),
     openReleaseFolder: () => invoke('open_release_folder'),
     getVersions: () => invoke('get_versions'),

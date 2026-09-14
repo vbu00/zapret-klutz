@@ -293,6 +293,8 @@
       ],
     }),
     openResultFile: noop,
+    getDiscordQuic: async () => ({ enabled: false, installed: true }),
+    setDiscordQuic: noop,
     getReleaseRegression: async () => ({
       current: 'zapret-discord-youtube-1.10.2',
       previous: 'zapret-discord-youtube-1.9.9c',

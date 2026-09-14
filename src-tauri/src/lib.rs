@@ -18,6 +18,7 @@ mod maintenance;
 mod monitor;
 mod notify;
 mod probe;
+mod quic;
 mod release;
 mod releases;
 mod service;
@@ -58,6 +59,9 @@ pub fn run() {
             tgws::adopt_existing(&handle);
             monitor::start(handle.clone());
             autotest::start(handle.clone());
+            // Discord после обновления переезжает в новую папку, и правило
+            // «без QUIC» к ней уже не относится. netsh небыстрый — в фоне.
+            std::thread::spawn(quic::refresh);
 
             // Автозапуск поднимает приложение свёрнутым в трей: показывать
             // окно при входе в систему никто не просил.
@@ -155,6 +159,8 @@ pub fn run() {
             commands::update_hosts_file,
             commands::check_updates,
             commands::clear_discord_cache,
+            commands::get_discord_quic,
+            commands::set_discord_quic,
             commands::get_custom_lists,
             commands::save_custom_lists,
             commands::export_settings,

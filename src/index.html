@@ -1037,6 +1037,16 @@
 
           <div class="srow">
             <div class="srow-text">
+              <div class="srow-title">Discord без QUIC</div>
+              <div class="srow-desc" id="discordQuicDesc">Не пускать приложение Discord на UDP 443 — тогда оно ходит по обычному HTTPS, который обход держит надёжнее. Помогает, когда Discord висит на «Starting...», хотя тесты зелёные.</div>
+            </div>
+            <div class="srow-ctl">
+              <span class="toggle" id="discordQuicToggle"><span class="knob"></span></span>
+            </div>
+          </div>
+
+          <div class="srow">
+            <div class="srow-text">
               <div class="srow-title">Свои списки доменов</div>
               <div class="srow-desc">По домену в строке — дополнительный обход поверх IPSet.</div>
             </div>

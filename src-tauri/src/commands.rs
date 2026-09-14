@@ -2148,6 +2148,21 @@ pub fn remove_extra_strategies(state: State<AppState>) -> SimpleResult {
     }
 }
 
+// ─────────── Discord без QUIC ───────────
+
+#[tauri::command(async)]
+pub fn get_discord_quic() -> crate::quic::QuicStatus {
+    crate::quic::status()
+}
+
+#[tauri::command(async)]
+pub fn set_discord_quic(enabled: bool) -> SimpleResult {
+    match crate::quic::set(enabled) {
+        Ok(_) => ok(),
+        Err(e) => err(e),
+    }
+}
+
 // ─────────── Экспорт / импорт настроек ───────────
 //
 // Намеренно узко: только то, что переносимо между машинами и релизами.
