@@ -552,6 +552,145 @@ pub fn run_tests(app: AppHandle, state: State<AppState>, mode: String) -> RunTes
     result
 }
 
+/// Итог проверки нового релиза.
+#[derive(Debug, Serialize)]
+pub struct Trial {
+    /// Новый релиз и корень, на который переключаться.
+    release: String,
+    root: String,
+    current: String,
+    #[serde(rename = "newBest")]
+    new_best: Option<crate::history::Best>,
+    #[serde(rename = "curBest")]
+    cur_best: Option<crate::history::Best>,
+    /// Что просело, если новый хуже. `None` — не хуже.
+    worse: Option<crate::history::Comparison>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TrialResult {
+    ok: bool,
+    error: Option<String>,
+    text: String,
+    trial: Option<Trial>,
+}
+
+/// «Проверить и обновить»: новый релиз zapret скачивается рядом и проходит
+/// тесты, не трогая рабочий, а переключаться или нет — по итогу сравнения.
+///
+/// Живой случай, ради которого это сделано: 1.10.2 оказался хуже 1.9.9c —
+/// ALT11 упал с 36 до 12, — а заметили это уже после переключения, когда
+/// Discord перестал запускаться.
+#[tauri::command(async)]
+pub fn trial_latest_release(app: AppHandle, state: State<AppState>) -> TrialResult {
+    let fail = |e: String| TrialResult { ok: false, error: Some(e), text: String::new(), trial: None };
+    let Some(cur_root) = root_of(&state) else { return fail("Сначала загрузи релиз zapret.".into()) };
+    if crate::service::service_conflict() {
+        return fail(
+            "Установлена служба Windows «zapret» — сначала сними её: скрипт тестов zapret при службе не работает."
+                .into(),
+        );
+    }
+    let Some(run) = crate::state::TestRun::acquire(&state) else {
+        return fail(if crate::gamescan::scan_busy() {
+            "Сейчас идёт сбор адресов игры — дождись его окончания.".into()
+        } else {
+            "Тесты уже идут.".into()
+        });
+    };
+    let before = state.persisted.lock().unwrap().active_config.clone();
+    let result = run_trial(&app, &run, &cur_root);
+    restore_after_tests(&app, before);
+    match result {
+        Ok((text, trial)) => TrialResult { ok: true, error: None, text, trial: Some(trial) },
+        Err(e) => fail(e),
+    }
+}
+
+fn run_trial(
+    app: &AppHandle,
+    run: &crate::state::TestRun<'_>,
+    cur_root: &Path,
+) -> Result<(String, Trial), String> {
+    let log = |line: String| {
+        let _ = app.emit("test-log", line);
+    };
+    let current = crate::history::release_label(cur_root);
+
+    log("── Скачиваю последний релиз zapret; рабочий остаётся на месте ──".into());
+    let zip = crate::releases::download_latest(app)?;
+    let name = zip.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "release".into());
+    let target = crate::releases::releases_dir(app).join(&name);
+    // Распаковка заменяет папку целиком — и рабочий релиз снесла бы.
+    if name == current || cur_root.starts_with(&target) {
+        let _ = std::fs::remove_file(&zip);
+        return Err(format!("Последний релиз — {name}, он и стоит сейчас. Проверять нечего."));
+    }
+    let extracted = crate::releases::extract_zip(&zip, &target);
+    let _ = std::fs::remove_file(&zip);
+    let new_root = extracted?;
+    let check = validate_release(&new_root);
+    if !check.ok {
+        return Err(check.error.unwrap_or_else(|| "Скачанный архив не похож на релиз zapret.".into()));
+    }
+
+    // Условия теста — как у рабочего: те же Game Filter, IPSet, списки и
+    // прежние варианты работавших конфигов. Иначе новый релиз проверялся бы
+    // с выключенным фильтром и пустым IPSet и проиграл бы нечестно.
+    crate::history::archive(app, cur_root);
+    let mut перенесено = crate::carry::carry_over(cur_root, &new_root);
+    let прежние = crate::configdiff::import_good_old(app, cur_root, &new_root);
+    if !прежние.is_empty() {
+        перенесено.push(format!("прежние варианты работавших конфигов ({})", прежние.len()));
+    }
+    if !перенесено.is_empty() {
+        log(format!("Перенёс в {name}: {}.", перенесено.join(", ")));
+    }
+
+    // Режим — как у последнего прогона рабочего релиза: сравнивать можно
+    // только одинаковые прогоны.
+    let cur_last = crate::history::runs(app).into_iter().rev().filter(|r| r.release == current).find_map(|r| {
+        let text = std::fs::read_to_string(&r.path).ok()?;
+        (!crate::tests::parse_results(&text).0.is_empty()).then_some(text)
+    });
+    let dpi = cur_last.as_deref().map(|t| crate::tests::parse_results(t).1).unwrap_or(false);
+
+    if run.cancelled() {
+        return Err("Проверка остановлена.".into());
+    }
+    log(format!("── Тесты на {name} ──"));
+    let new_text = crate::tests::run_full_with_retry(app, &new_root, dpi, || run.cancelled())?;
+    crate::history::archive(app, &new_root);
+
+    let cur_text = match cur_last {
+        Some(t) => t,
+        None => {
+            if run.cancelled() {
+                return Err("Проверка остановлена.".into());
+            }
+            log(format!("── Для сравнения — тесты на {current}: прогонов на нём ещё не было ──"));
+            let t = crate::tests::run_full_with_retry(app, cur_root, dpi, || run.cancelled())?;
+            crate::history::archive(app, cur_root);
+            t
+        }
+    };
+
+    let worse = crate::history::compare(&new_text, &cur_text);
+    log(match &worse {
+        Some(_) => format!("Итог: на {name} хуже, чем на {current}. Рабочий релиз не тронут."),
+        None => format!("Итог: {name} не хуже {current}. Можно переключаться — настройки уже перенесены."),
+    });
+    let trial = Trial {
+        release: name,
+        root: new_root.to_string_lossy().into_owned(),
+        current,
+        new_best: crate::history::best_of(&new_text),
+        cur_best: crate::history::best_of(&cur_text),
+        worse,
+    };
+    Ok((new_text, trial))
+}
+
 /// Возвращает обход в то состояние, в котором он был до прогона. Без этого
 /// окно и трей показывали стратегию, которой уже нет: `active_config` прогон
 /// не трогает, а winws остаётся на последнем протестированном конфиге.

@@ -296,6 +296,23 @@
     getDiscordQuic: async () => ({ enabled: false, installed: true }),
     setDiscordQuic: noop,
     getSystemProxy: async () => ({ server: 'http://127.0.0.1:12334', owner: 'Hiddify.exe' }),
+    trialLatestRelease: async () => ({
+      ok: true,
+      error: null,
+      text: '=== ANALYTICS ===\ngeneral (ALT12).bat: HTTP OK: 34, ERR: 2, UNSUP: 0, Ping OK: 16, Fail: 0\n',
+      trial: {
+        release: 'zapret-discord-youtube-1.10.2',
+        root: 'C:\\Users\\vbu00\\AppData\\Roaming\\com.vbu00.klutz\\releases\\zapret-discord-youtube-1.10.2\\zapret-discord-youtube-1.10.2',
+        current: 'zapret-discord-youtube-1.9.9c',
+        newBest: { name: 'general (ALT12).bat', ok: 34, total: 36 },
+        curBest: { name: 'general (ALT11).bat', ok: 36, total: 36 },
+        worse: {
+          curBest: 'general (ALT12).bat', curOk: 34, curTotal: 36,
+          prevBest: 'general (ALT11).bat', prevOk: 36, prevTotal: 36,
+          drops: [{ name: 'general (ALT11).bat', prevOk: 36, curOk: 12, total: 36 }],
+        },
+      },
+    }),
     getWhatsNew: async () => [
       {
         version: 'Не выпущено',

@@ -168,6 +168,7 @@ pub fn run() {
             commands::diagnose_discord,
             commands::get_system_proxy,
             commands::get_whats_new,
+            commands::trial_latest_release,
             commands::get_custom_lists,
             commands::save_custom_lists,
             commands::export_settings,

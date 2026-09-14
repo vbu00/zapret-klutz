@@ -2008,7 +2008,9 @@ async function runAllTests(opts = {}) {
   // прогоняет DPI по всем конфигам, отбирает прошедших на 100% и скармливает
   // их номера скрипту вторым прогоном. Сюда возвращается уже итог.
   const off = window.zapret.onTestLog(appendLog);
-  const res = await window.zapret.runTests({ mode: testMode });
+  const res = opts.trial
+    ? await window.zapret.trialLatestRelease()
+    : await window.zapret.runTests({ mode: testMode });
   off();
   finish();
 
@@ -2017,10 +2019,43 @@ async function runAllTests(opts = {}) {
     return;
   }
 
+  // Проверка нового релиза: итоги относятся к нему, а не к рабочему, — ни
+  // таблицу, ни «лучшую» стратегию к рабочему релизу не применяем. Лучший
+  // конфиг нового там может и не существовать. Решает человек, по вердикту.
+  if (opts.trial && res.trial) {
+    loadLastResults();
+    loadTestsHistory();
+    await showTrialVerdict(res.trial);
+    return;
+  }
+
   renderResults(res.text);
   loadTestsHistory();
   const { best } = parseResults(res.text);
   await applyBestAndFinish(best);
+}
+
+// Вердикт проверки нового релиза: переключаться или остаться.
+async function showTrialVerdict(t) {
+  const cur = shortRelease(t.current);
+  const next = shortRelease(t.release);
+  const лучший = (b) => (b ? `${displayName(b.name)} — ${b.ok} из ${b.total}` : 'нет итогов');
+  let question;
+  if (t.worse) {
+    const drops = (t.worse.drops || [])
+      .slice(0, 3)
+      .map((d) => `${displayName(d.name)}: было ${d.prevOk} → стало ${d.curOk}`)
+      .join('; ');
+    question =
+      `На ${next} хуже, чем на ${cur}. Лучший на ${next}: ${лучший(t.newBest)}, на ${cur}: ${лучший(t.curBest)}.` +
+      (drops ? ` Просели: ${drops}.` : '') +
+      `\n\nРабочий релиз не тронут. Всё равно переключиться на ${next}?`;
+  } else {
+    question =
+      `${next} не хуже ${cur}: лучший на нём ${лучший(t.newBest)}, сейчас ${лучший(t.curBest)}. ` +
+      `Настройки уже перенесены.\n\nПереключиться на ${next}?`;
+  }
+  if (await showConfirm(question)) await switchToRelease(t.root);
 }
 
 $('runTestsBtn').onclick = () => runAllTests();
@@ -2950,6 +2985,14 @@ $('checkUpdatesBtn').onclick = async () => {
 $('openReleaseNotesBtn').onclick = () => {
   const url = $('openReleaseNotesBtn').dataset.url;
   if (url) window.zapret.openExternalUrl(url);
+};
+
+// «Проверить и обновить»: новый релиз проходит тесты рядом с рабочим, и
+// переключаться или нет — решается по итогу, а не после переключения.
+$('trialUpdateBtn').onclick = () => {
+  switchPage('strategies');
+  switchSubtab('tests');
+  runAllTests({ trial: true });
 };
 
 $('clearDiscordBtn').onclick = async () => {

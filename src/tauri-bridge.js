@@ -159,6 +159,7 @@
     diagnoseDiscord: () => invoke('diagnose_discord'),
     getSystemProxy: () => invoke('get_system_proxy'),
     getWhatsNew: (since) => invoke('get_whats_new', { since: since || null }),
+    trialLatestRelease: () => invoke('trial_latest_release'),
     // Отказ приходит отказом промиса со строкой ошибки, успех — именем конфига.
     importOldConfig: (oldRoot, config) => invoke('import_old_config', { oldRoot, config }),
     openExternalUrl: (url) => invoke('open_external_url', { url }),

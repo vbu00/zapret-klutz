@@ -116,6 +116,21 @@ pub struct Comparison {
     pub drops: Vec<ConfigDrop>,
 }
 
+/// Лучший конфиг прогона.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Best {
+    pub name: String,
+    pub ok: u32,
+    pub total: u32,
+}
+
+/// Лучший конфиг по тому же порядку, что у самолечения и истории.
+pub fn best_of(text: &str) -> Option<Best> {
+    let (rows, dpi) = parse_results(text);
+    let b = rows.iter().min_by(|a, b| rank_desc(a, b, dpi))?;
+    Some(Best { name: b.config.clone(), ok: b.ok, total: b.total(dpi) })
+}
+
 /// На сколько должен упасть лучший результат, чтобы назвать релиз хуже.
 /// Меньше — это разброс между прогонами: одна цель ответила, другая нет.
 pub const WORSE_BY: f64 = 0.10;
@@ -195,6 +210,13 @@ mod unit_tests {
             c.drops,
             vec![ConfigDrop { name: "general (ALT11).bat".into(), prev_ok: 36, cur_ok: 12, total: 36 }]
         );
+    }
+
+    #[test]
+    fn лучший_конфиг_прогона() {
+        let t = итоги(&[("general.bat", 17, 19), ("general (ALT12).bat", 34, 2)]);
+        assert_eq!(best_of(&t), Some(Best { name: "general (ALT12).bat".into(), ok: 34, total: 36 }));
+        assert_eq!(best_of(""), None);
     }
 
     #[test]
