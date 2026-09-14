@@ -165,9 +165,64 @@ pub fn import_old(old_root: &Path, new_root: &Path, config: &str) -> Result<Stri
     Ok(name)
 }
 
+/// Доля целей, начиная с которой конфиг считается работавшим.
+pub const GOOD_SHARE: f64 = 0.9;
+
+/// Конфиги прогона, которые работали: прошли не меньше `GOOD_SHARE` целей.
+/// Варианты (Z2K, «Было …») не в счёт — переносить вариант варианта незачем.
+pub fn good_configs(results: &str) -> Vec<String> {
+    let (rows, dpi) = crate::tests::parse_results(results);
+    rows.into_iter()
+        .filter(|r| r.score(dpi) >= GOOD_SHARE && !crate::strategies::is_variant(&r.config))
+        .map(|r| r.config)
+        .collect()
+}
+
+/// При смене релиза: прежние варианты конфигов, которые на прежнем работали,
+/// а в новом изменились, ложатся рядом как «Было …». Возвращает их имена.
+///
+/// Не все двадцать прежних — это вдвое удлинило бы прогон, — а только те,
+/// ради которых стоит: ALT11 из 1.9.9c давал 36 из 36, а на 1.10.2 его
+/// изменили и он упал до 12. Прежний вариант так и остаётся в тестах и в
+/// рейтинге самолечения нового релиза.
+pub fn import_good_old(app: &tauri::AppHandle, old_root: &Path, new_root: &Path) -> Vec<String> {
+    let label = crate::history::release_label(old_root);
+    let Some(last) = crate::history::runs(app).into_iter().rev().find(|r| r.release == label) else {
+        return Vec::new();
+    };
+    let Ok(results) = fs::read_to_string(&last.path) else { return Vec::new() };
+    let mut out = Vec::new();
+    for config in good_configs(&results) {
+        let (Ok(old_bat), Ok(new_bat)) =
+            (fs::read_to_string(old_root.join(&config)), fs::read_to_string(new_root.join(&config)))
+        else {
+            continue;
+        };
+        if diff(&old_bat, &new_bat).is_empty() || new_root.join(old_name(&label, &config)).exists() {
+            continue;
+        }
+        if let Ok(name) = import_old(old_root, new_root, &config) {
+            out.push(name);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+
+    #[test]
+    fn работавшие_конфиги_прогона() {
+        let итоги = "=== ANALYTICS ===\n\
+                     general (ALT11).bat : HTTP OK: 36, ERR: 0, UNSUP: 0, Ping OK: 17, Fail: 0\n\
+                     general (ALT12).bat : HTTP OK: 32, ERR: 4, UNSUP: 0, Ping OK: 17, Fail: 0\n\
+                     general.bat : HTTP OK: 7, ERR: 27, UNSUP: 0, Ping OK: 16, Fail: 0\n\
+                     general (Z2K general (ALT11) sld1).bat : HTTP OK: 36, ERR: 0, UNSUP: 0, Ping OK: 17, Fail: 0\n";
+        // 32 из 36 — это 0,89: не дотягивает до «работал».
+        assert_eq!(good_configs(итоги), vec!["general (ALT11).bat"]);
+        assert!(good_configs("").is_empty());
+    }
 
     /// Кусок настоящего ALT11: TLS-профиль, где 1.10.2 заменил подложку.
     fn alt11(stun: &str, extra: &str) -> String {

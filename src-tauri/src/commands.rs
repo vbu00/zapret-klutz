@@ -122,7 +122,13 @@ fn set_root(app: &AppHandle, state: &AppState, root: &Path, can_install_service:
             // Прогоны прежнего релиза — в архив до смены: иначе, если окно
             // тестов на нём ни разу не открывали, сравнивать новый будет не с чем.
             crate::history::archive(app, Path::new(o));
-            crate::carry::carry_over(Path::new(o), root)
+            let mut carried = crate::carry::carry_over(Path::new(o), root);
+            // Прежние варианты конфигов, которые там работали, а тут изменились.
+            let прежние = crate::configdiff::import_good_old(app, Path::new(o), root);
+            if !прежние.is_empty() {
+                carried.push(format!("прежние варианты работавших конфигов ({})", прежние.len()));
+            }
+            carried
         }
         _ => Vec::new(),
     };
