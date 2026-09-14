@@ -118,7 +118,12 @@ fn set_root(app: &AppHandle, state: &AppState, root: &Path, can_install_service:
     let old = state.persisted.lock().unwrap().root_path.clone();
     let old = old.filter(|o| Path::new(o) != root);
     let carried = match &old {
-        Some(o) if Path::new(o).is_dir() => crate::carry::carry_over(Path::new(o), root),
+        Some(o) if Path::new(o).is_dir() => {
+            // Прогоны прежнего релиза — в архив до смены: иначе, если окно
+            // тестов на нём ни разу не открывали, сравнивать новый будет не с чем.
+            crate::history::archive(app, Path::new(o));
+            crate::carry::carry_over(Path::new(o), root)
+        }
         _ => Vec::new(),
     };
     {
@@ -134,6 +139,63 @@ fn set_root(app: &AppHandle, state: &AppState, root: &Path, can_install_service:
     }
     save_state(app, state);
     carried
+}
+
+#[derive(Debug, Serialize)]
+pub struct Regression {
+    current: String,
+    previous: String,
+    #[serde(flatten)]
+    cmp: crate::history::Comparison,
+    /// Куда вернуться. `None` — папки прежнего релиза больше нет.
+    #[serde(rename = "rollbackPath")]
+    rollback_path: Option<String>,
+}
+
+/// Стало ли на текущем релизе хуже, чем на прежнем, по последним прогонам.
+/// `None` — не хуже, или сравнивать не с чем.
+///
+/// Берётся последний прогон текущего релиза и последний прогон другого
+/// релиза в том же режиме, сделанный раньше. После отката на старый релиз
+/// прогоны нового оказываются позже — и тревоги задним числом не будет.
+#[tauri::command(async)]
+pub fn get_release_regression(app: AppHandle, state: State<AppState>) -> Option<Regression> {
+    let root = root_of(&state)?;
+    crate::history::archive(&app, &root);
+    let label = crate::history::release_label(&root);
+    let runs = crate::history::runs(&app);
+    let cur = runs.iter().rev().find(|r| r.release == label)?;
+    let cur_text = std::fs::read_to_string(&cur.path).ok()?;
+    let (cur_rows, cur_dpi) = crate::tests::parse_results(&cur_text);
+    if cur_rows.is_empty() {
+        return None;
+    }
+    let (prev, prev_text) = runs
+        .iter()
+        .rev()
+        .filter(|r| r.release != label && r.modified < cur.modified)
+        .find_map(|r| {
+            let text = std::fs::read_to_string(&r.path).ok()?;
+            let (rows, dpi) = crate::tests::parse_results(&text);
+            (!rows.is_empty() && dpi == cur_dpi).then_some((r, text))
+        })?;
+    let cmp = crate::history::compare(&cur_text, &prev_text)?;
+
+    // Вернуться можно туда, откуда переключились, если это тот самый релиз,
+    // иначе — в скачанную Klutz папку с тем же именем.
+    let годен = |p: &Path| p.join("bin").join("winws.exe").exists();
+    let previous_root = state.persisted.lock().unwrap().previous_root.clone();
+    let rollback_path = previous_root
+        .filter(|p| годен(Path::new(p)) && crate::history::release_label(Path::new(p)) == prev.release)
+        .or_else(|| {
+            if !safe_name(&prev.release) {
+                return None;
+            }
+            let dir = crate::releases::releases_dir(&app).join(&prev.release);
+            let r = crate::releases::release_root(&dir);
+            годен(&r).then(|| r.to_string_lossy().into_owned())
+        });
+    Some(Regression { current: label, previous: prev.release.clone(), cmp, rollback_path })
 }
 
 /// Загрузка релиза из папки. Для .zip есть отдельная команда
@@ -1218,11 +1280,24 @@ pub fn open_release_folder(state: State<AppState>) -> SimpleResult {
 }
 
 #[tauri::command(async)]
-pub fn open_result_file(state: State<AppState>, file_name: String) -> SimpleResult {
+pub fn open_result_file(
+    app: AppHandle,
+    state: State<AppState>,
+    file_name: String,
+    release: Option<String>,
+) -> SimpleResult {
     // Только внутри папки результатов — имя приходит из интерфейса, но
     // проверить дешевле, чем доверять.
     if !safe_name(&file_name) {
         return err("Недопустимое имя файла.");
+    }
+    // Прогон из архива Klutz: у него свой релиз, и файл лежит там, а не в
+    // папке текущего релиза, — после смены версии zapret его там нет вовсе.
+    if let Some(rel) = release.filter(|r| safe_name(r)) {
+        let p = crate::history::history_dir(&app).join(&rel).join(&file_name);
+        if p.exists() {
+            return open_path(&p);
+        }
     }
     match root_of(&state) {
         Some(root) => {
@@ -1242,6 +1317,8 @@ pub fn open_result_file(state: State<AppState>, file_name: String) -> SimpleResu
 pub struct HistoryRun {
     date: String,
     file: String,
+    /// Релиз, на котором шёл прогон, — имя его папки.
+    release: String,
     best: Option<String>,
     mode: String,
     /// Сколько целей прошла лучшая строка прогона и сколько их было всего.
@@ -1271,37 +1348,25 @@ pub struct HistoryResult {
 }
 
 #[tauri::command(async)]
-pub fn get_test_history(state: State<AppState>) -> HistoryResult {
-    let Some(root) = root_of(&state) else {
-        return HistoryResult { ok: true, runs: vec![], configs: vec![] };
-    };
-    let dir = root.join("utils").join("test results");
+pub fn get_test_history(app: AppHandle, state: State<AppState>) -> HistoryResult {
+    // Прогоны текущего релиза — в архив Klutz, а читается история оттуда, по
+    // всем релизам разом. Раньше она читалась из папки релиза и пропадала
+    // при каждой смене версии zapret.
+    if let Some(root) = root_of(&state) {
+        crate::history::archive(&app, &root);
+    }
     // Порядок «от старого к новому» — по времени изменения. Имена файлов
     // задаёт чужой скрипт, и их алфавит не обязан совпадать с хронологией.
-    let mut dated: Vec<(std::time::SystemTime, String)> = match std::fs::read_dir(&dir) {
-        Ok(d) => d
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                if !name.to_lowercase().ends_with(".txt") {
-                    return None;
-                }
-                let t = e.metadata().and_then(|m| m.modified()).ok()?;
-                Some((t, name))
-            })
-            .collect(),
-        Err(_) => return HistoryResult { ok: true, runs: vec![], configs: vec![] },
-    };
-    dated.sort_by_key(|(time, _)| *time);
-    let files: Vec<String> = dated.into_iter().map(|(_, n)| n).collect();
+    let archived = crate::history::runs(&app);
 
     let mut runs = Vec::new();
     // config -> доли по прогонам, в порядке от старого к новому
     let mut series: std::collections::BTreeMap<String, Vec<f64>> = Default::default();
     let mut wins: std::collections::BTreeMap<String, u32> = Default::default();
 
-    for f in &files {
-        let Ok(text) = std::fs::read_to_string(dir.join(f)) else { continue };
+    for run in &archived {
+        let f = &run.name;
+        let Ok(text) = std::fs::read_to_string(&run.path) else { continue };
         let (rows, dpi) = crate::tests::parse_results(&text);
         if rows.is_empty() {
             continue;
@@ -1323,6 +1388,7 @@ pub fn get_test_history(state: State<AppState>) -> HistoryResult {
         runs.push(HistoryRun {
             date: f.trim_end_matches(".txt").to_string(),
             file: f.clone(),
+            release: run.release.clone(),
             best,
             mode: if dpi { "dpi".into() } else { "standard".into() },
             best_ok: best_row.map(|r| r.ok).unwrap_or(0),

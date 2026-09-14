@@ -150,7 +150,10 @@
       return () => un.then((f) => f());
     },
     getTestHistory: () => invoke('get_test_history'),
-    openResultFile: (fileName) => invoke('open_result_file', { fileName }),
+    // release — из какого релиза прогон: история хранится в папке Klutz
+    // по релизам, и файл прежнего релиза лежит не в текущей папке.
+    openResultFile: (fileName, release) => invoke('open_result_file', { fileName, release: release || null }),
+    getReleaseRegression: () => invoke('get_release_regression'),
     openExternalUrl: (url) => invoke('open_external_url', { url }),
     openReleaseFolder: () => invoke('open_release_folder'),
     getVersions: () => invoke('get_versions'),

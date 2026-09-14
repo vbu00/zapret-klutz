@@ -284,8 +284,8 @@
     getTestHistory: async () => ({
       ok: true,
       runs: [
-        { date: '2026-09-10_19-20', file: '2026-09-10_19-20.txt', best: 'general (ALT).bat', mode: 'standard', bestOk: 6, bestTotal: 7 },
-        { date: '2026-09-12_08-05', file: '2026-09-12_08-05.txt', best: 'general (ALT2).bat', mode: 'dpi', bestOk: 7, bestTotal: 7 },
+        { date: '2026-09-10_19-20', file: '2026-09-10_19-20.txt', release: 'zapret-discord-youtube-1.9.9c', best: 'general (ALT11).bat', mode: 'standard', bestOk: 36, bestTotal: 36 },
+        { date: '2026-09-13_21-44', file: '2026-09-13_21-44.txt', release: 'zapret-discord-youtube-1.10.2', best: 'general (ALT12).bat', mode: 'standard', bestOk: 34, bestTotal: 36 },
       ],
       configs: [
         { name: 'general (ALT).bat', latestShare: 0.86, shareSeries: [1, 0.86], wins: 1 },
@@ -293,6 +293,18 @@
       ],
     }),
     openResultFile: noop,
+    getReleaseRegression: async () => ({
+      current: 'zapret-discord-youtube-1.10.2',
+      previous: 'zapret-discord-youtube-1.9.9c',
+      curBest: 'general (ALT12).bat',
+      curOk: 34,
+      curTotal: 36,
+      prevBest: 'general (ALT11).bat',
+      prevOk: 36,
+      prevTotal: 36,
+      drops: [{ name: 'general (ALT11).bat', prevOk: 36, curOk: 12, total: 36 }],
+      rollbackPath: 'C:\\Users\\vbu00\\Desktop\\zapret-discord-youtube-1.9.9c',
+    }),
     openExternalUrl: noop,
     openReleaseFolder: noop,
 

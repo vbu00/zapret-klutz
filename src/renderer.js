@@ -2016,9 +2016,45 @@ function healLogRow(e) {
 
 // Бывшая вкладка «История»: снимки прогонов и журнал самолечения живут под
 // результатами тестов — там, где их и ищут сразу после прогона.
+// Имя релиза без общей приставки: в строке прогона важна версия.
+function shortRelease(name) {
+  return String(name || '').replace(/^zapret-discord-youtube-/i, '');
+}
+
+// «На новом стало хуже». Без этой карточки провал после обновления zapret
+// человек замечал сам, сличая файлы результатов руками: на 1.10.2 ALT11 упал
+// с 36 до 12, а лучший результат изменился всего на два очка.
+function regressionCard(reg) {
+  const cur = shortRelease(reg.current);
+  const prev = shortRelease(reg.previous);
+  const строка = (left, right) =>
+    `<div class="snap-row"><div class="snap-left"><span class="snap-best">${left}</span></div>` +
+    `<div class="snap-right"><span class="snap-stat">${right}</span></div></div>`;
+  const drops = (reg.drops || [])
+    .map((d) => строка(esc(displayName(d.name)), `было ${d.prevOk} → стало ${d.curOk} из ${d.total}`))
+    .join('');
+  const action = reg.rollbackPath
+    ? `<button class="btn sm" id="regressRollbackBtn">Вернуть ${esc(prev)}</button>`
+    : `<span class="snap-stat">папки ${esc(prev)} больше нет — вернуть нечем</span>`;
+  return `<div class="card">
+      <div class="card-head">
+        <div class="ch-left"><span class="ch-title">На ${esc(cur)} стало хуже, чем на ${esc(prev)}</span></div>
+        <div class="ch-right">${action}</div>
+      </div>
+      ${строка(`Лучший на ${esc(prev)}: ${esc(displayName(reg.prevBest))}`, `${reg.prevOk} из ${reg.prevTotal}`)}
+      ${строка(`Лучший на ${esc(cur)}: ${esc(displayName(reg.curBest))}`, `${reg.curOk} из ${reg.curTotal}`)}
+      ${drops}
+    </div>`;
+}
+
 async function loadTestsHistory() {
   const box = $('testsHistory');
-  const [res, healRes] = await Promise.all([window.zapret.getTestHistory(), window.zapret.getHealLog()]);
+  const [res, healRes, reg] = await Promise.all([
+    window.zapret.getTestHistory(),
+    window.zapret.getHealLog(),
+    // Сравнение с прежним релизом — не обязательное: не вышло, значит без карточки.
+    window.zapret.getReleaseRegression().catch(() => null),
+  ]);
 
   // Прогоны приходят от старого к новому — показываем свежие сверху.
   const runs = res.ok ? res.runs.slice().reverse() : [];
@@ -2029,11 +2065,12 @@ async function loadTestsHistory() {
         <div class="snap-left">
           <span class="snap-date">${esc(r.date)}</span>
           <span class="badge ${r.mode === 'dpi' ? 'dpi' : 'neutral'}">${r.mode === 'dpi' ? 'DPI' : 'HTTP'}</span>
+          ${r.release ? `<span class="badge neutral" title="${esc(r.release)}">${esc(shortRelease(r.release))}</span>` : ''}
           <span class="snap-best">${esc(r.best ? displayName(r.best) : '—')}</span>
         </div>
         <div class="snap-right">
           <span class="snap-stat">лучший результат ${bestOf(r)}</span>
-          <span class="cf-link" data-open="${esc(r.file)}">Открыть</span>
+          <span class="cf-link" data-open="${esc(r.file)}" data-release="${esc(r.release || '')}">Открыть</span>
         </div>
       </div>`
     )
@@ -2055,6 +2092,7 @@ async function loadTestsHistory() {
     : '';
 
   box.innerHTML = `
+    ${reg ? regressionCard(reg) : ''}
     ${snapsCard}
     <div class="card">
       <div class="card-head"><div class="ch-left"><span class="ch-title">Журнал автопереключений</span></div></div>
@@ -2064,10 +2102,18 @@ async function loadTestsHistory() {
   box.querySelectorAll('[data-open]').forEach((el) => {
     el.style.cursor = 'pointer';
     el.onclick = async () => {
-      const res2 = await window.zapret.openResultFile(el.dataset.open);
+      const res2 = await window.zapret.openResultFile(el.dataset.open, el.dataset.release);
       if (!res2.ok) showToast(res2.error || 'Не удалось открыть файл', 'error');
     };
   });
+
+  const rollback = $('regressRollbackBtn');
+  if (rollback && reg && reg.rollbackPath) {
+    rollback.onclick = async () => {
+      await switchToRelease(reg.rollbackPath);
+      loadTestsHistory();
+    };
+  }
 }
 
 // ─────────── Обзор (чипы главной) ───────────

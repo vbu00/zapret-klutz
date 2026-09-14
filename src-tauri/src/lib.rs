@@ -13,6 +13,7 @@ mod commands;
 mod diag;
 mod favicon;
 mod gamescan;
+mod history;
 mod maintenance;
 mod monitor;
 mod notify;
@@ -148,6 +149,7 @@ pub fn run() {
             commands::open_external_url,
             commands::open_release_folder,
             commands::get_test_history,
+            commands::get_release_regression,
             commands::open_result_file,
             commands::update_ipset_list,
             commands::update_hosts_file,
