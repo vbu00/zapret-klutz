@@ -2354,6 +2354,35 @@ pub fn set_discord_quic(enabled: bool) -> SimpleResult {
     }
 }
 
+/// Отчёт для разработчика: версии, режимы, прокси, итоги прогона. Без личного.
+#[tauri::command(async)]
+pub fn developer_report(app: AppHandle, state: State<AppState>) -> String {
+    crate::report::build(&app, &state)
+}
+
+/// Сохраняет отчёт в файл и открывает его: к issue файл приложить проще,
+/// чем вставлять простыню текста.
+#[tauri::command(async)]
+pub fn save_report(app: AppHandle, text: String) -> SimpleResult {
+    use tauri::Manager;
+    let dir = match app.path().app_data_dir() {
+        Ok(d) => d.join("reports"),
+        Err(e) => return err(e.to_string()),
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return err(e.to_string());
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let file = dir.join(format!("klutz-report-{stamp}.txt"));
+    if let Err(e) = std::fs::write(&file, text) {
+        return err(e.to_string());
+    }
+    open_path(&file)
+}
+
 /// «Что нового» с версии `since` по текущую. `since` — версия, с которой
 /// Klutz открывали в прошлый раз; `null` — неизвестна.
 #[tauri::command(async)]

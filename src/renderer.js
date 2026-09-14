@@ -3379,12 +3379,19 @@ let lastDiagResults = null;
 async function buildDiagReport(results) {
   const release = currentState.rootPath ? currentState.rootPath.split(/[\\/]/).pop() : 'не загружен';
   const lines = [
-    'Klutz — диагностика системы',
+    'Klutz — отчёт для разработчика',
     new Date().toLocaleString('ru-RU'),
     `Релиз: ${release}`,
     '',
     ...results.map((r) => `${r.ok ? '✓' : '✗'} ${r.label}${r.warn ? ' — ' + r.warn : ''}`),
   ];
+
+  // Всё, от чего зависит обход: версии, режимы, прокси, итоги последнего
+  // прогона. Раньше это выспрашивали по одному после скриншота с ошибкой.
+  try {
+    const extra = await window.zapret.developerReport();
+    if (extra) lines.push('', extra);
+  } catch {}
 
   // Журнал winws — единственное место, где видно, ПОЧЕМУ обход не поднялся.
   // Шторку логов из интерфейса убрали по макету, и бэкенд с тех пор собирал
@@ -3404,6 +3411,22 @@ async function buildDiagReport(results) {
 
   return lines.join('\n');
 }
+
+// Файлом — для issue: вставлять простыню текста в форму неудобно.
+$('saveDiagBtn').onclick = async () => {
+  const btn = $('saveDiagBtn');
+  if (!lastDiagResults) {
+    btn.disabled = true;
+    btn.textContent = 'Проверяю…';
+    await runDiagnosticsAndRender();
+    btn.disabled = false;
+    btn.textContent = 'Сохранить в файл';
+  }
+  if (!lastDiagResults) return;
+  const res = await window.zapret.saveReport(await buildDiagReport(lastDiagResults));
+  if (res && res.ok === false) showToast(res.error || 'Не удалось сохранить отчёт', 'error');
+  else showToast('Отчёт сохранён', 'success', { body: 'Файл открыт — приложи его к вопросу или issue.' });
+};
 
 $('copyDiagBtn').onclick = async () => {
   const btn = $('copyDiagBtn');

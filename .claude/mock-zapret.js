@@ -296,6 +296,8 @@
     getDiscordQuic: async () => ({ enabled: false, installed: true }),
     setDiscordQuic: noop,
     getSystemProxy: async () => ({ server: 'http://127.0.0.1:12334', owner: 'Hiddify.exe' }),
+    developerReport: async () => '— Klutz —\nKlutz: 1.4.0-beta.2\nРелиз zapret: zapret-discord-youtube-1.10.2 (версия 1.10.2)\n\n— Обход —\nСтратегия: general (ALT12)',
+    saveReport: noop,
     trialLatestRelease: async () => ({
       ok: true,
       error: null,

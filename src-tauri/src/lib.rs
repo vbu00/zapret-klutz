@@ -23,6 +23,7 @@ mod probe;
 mod quic;
 mod release;
 mod releases;
+mod report;
 mod service;
 mod state;
 mod strategies;
@@ -169,6 +170,8 @@ pub fn run() {
             commands::get_system_proxy,
             commands::get_whats_new,
             commands::trial_latest_release,
+            commands::developer_report,
+            commands::save_report,
             commands::get_custom_lists,
             commands::save_custom_lists,
             commands::export_settings,
