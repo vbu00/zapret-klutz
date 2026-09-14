@@ -622,6 +622,22 @@
         </div>
 
         <div class="sec-row">
+          <div class="sec-title">Discord</div>
+          <div class="sec-actions">
+            <button class="btn ghost sm" id="discordDiagBtn">Почему не запускается</button>
+          </div>
+        </div>
+
+        <div class="card hidden" id="discordDiagCard">
+          <div class="card-head">
+            <div class="ch-left"><span class="ch-title" id="discordDiagVerdict"></span></div>
+            <div class="ch-right" id="discordDiagAction"></div>
+          </div>
+          <p class="game-note" id="discordDiagAdvice"></p>
+          <div id="discordDiagRows"></div>
+        </div>
+
+        <div class="sec-row">
           <div class="sec-title">Внутри</div>
           <div class="sec-actions">
             <button class="btn ghost sm" id="runDiagBtn">Проверить систему</button>
@@ -1111,6 +1127,10 @@
             <button class="maint-tile" id="clearDiscordBtn">
               <span class="mt-title">Очистить кэш Discord</span>
               <span class="mt-desc">Помогает, когда клиент кэширует сломанные ответы.</span>
+            </button>
+            <button class="maint-tile" id="discordDiagTileBtn">
+              <span class="mt-title">Почему Discord не запускается</span>
+              <span class="mt-desc">Логи Discord, прокси, обход и сеть — и что с этим делать.</span>
             </button>
             <button class="maint-tile" id="checkUpdatesBtn">
               <span class="mt-title">Проверить обновления Zapret</span>

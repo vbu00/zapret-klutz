@@ -2163,6 +2163,26 @@ pub fn set_discord_quic(enabled: bool) -> SimpleResult {
     }
 }
 
+/// «Почему Discord не запускается». До полуминуты: пробы сети идут по очереди.
+#[tauri::command(async)]
+pub fn diagnose_discord(state: State<AppState>) -> crate::discorddiag::Report {
+    let (active, root) = {
+        let p = state.persisted.lock().unwrap();
+        (p.active_config.clone(), p.root_path.clone())
+    };
+    let bypass = crate::winws::is_winws_running().then(|| {
+        let name = active
+            .as_deref()
+            .map(|a| a.trim_end_matches(".bat").to_string())
+            .unwrap_or_else(|| "стратегия неизвестна".into());
+        match root {
+            Some(r) => format!("{name} на {}", crate::history::release_label(Path::new(&r))),
+            None => name,
+        }
+    });
+    crate::discorddiag::run(bypass)
+}
+
 // ─────────── Экспорт / импорт настроек ───────────
 //
 // Намеренно узко: только то, что переносимо между машинами и релизами.

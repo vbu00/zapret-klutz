@@ -156,6 +156,7 @@
     getReleaseRegression: () => invoke('get_release_regression'),
     getDiscordQuic: () => invoke('get_discord_quic'),
     setDiscordQuic: (enabled) => invoke('set_discord_quic', { enabled }),
+    diagnoseDiscord: () => invoke('diagnose_discord'),
     openExternalUrl: (url) => invoke('open_external_url', { url }),
     openReleaseFolder: () => invoke('open_release_folder'),
     getVersions: () => invoke('get_versions'),

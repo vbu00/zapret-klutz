@@ -1981,6 +1981,8 @@ html[data-theme="dark"] .menu { box-shadow: 0 16px 40px -12px rgba(0,0,0,.7); }
 .diag-row.ok .dr-icon  { color: var(--green); }
 .diag-row.bad .dr-icon { color: var(--red-row); }
 .diag-row .dr-warn { margin-left: auto; font-size: 13px; color: var(--amber); }
+.diag-row .dr-note { margin-left: auto; font-size: 13px; color: var(--tx-4); text-align: right; }
+#discordDiagAdvice { padding: 0 20px 14px; }
 .diag-row .diag-fix-btn { margin-left: auto; flex: 0 0 auto; }
 
 /* ─────────── Лог / пустое ─────────── */

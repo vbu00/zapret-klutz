@@ -3351,6 +3351,81 @@ async function runDiagnosticsAndRender(deep) {
 // них, иначе каждый запуск приложения стоил бы мегабайта трафика.
 $('runDiagBtn').onclick = () => runDiagnosticsAndRender(true);
 
+// ─────────── «Почему Discord не запускается» ───────────
+
+// Что предложить нажать — ровно тем путём, каким это делается в окне.
+const DISCORD_DIAG_ACTIONS = {
+  'enable-bypass': ['Включить обход', () => $('heroStartBtn').click()],
+  'pick-strategy': [
+    'Подобрать стратегию',
+    () => {
+      switchPage('strategies');
+      switchSubtab('tests');
+    },
+  ],
+  'enable-no-quic': [
+    'Включить «Discord без QUIC»',
+    async () => {
+      const r = await window.zapret.setDiscordQuic(true);
+      if (!r.ok) {
+        showToast(r.error || 'Не удалось изменить правило брандмауэра', 'error');
+        return;
+      }
+      showToast('Discord без QUIC включён', 'success', {
+        body: 'Перезапусти Discord полностью: в трее «Выйти из Discord», потом открой снова.',
+      });
+      loadDiscordQuic();
+    },
+  ],
+  'clear-cache': ['Очистить кэш Discord', () => $('clearDiscordBtn').click()],
+};
+
+async function runDiscordDiag() {
+  const btn = $('discordDiagBtn');
+  btn.disabled = true;
+  $('discordDiagCard').classList.remove('hidden');
+  $('discordDiagVerdict').textContent = 'Проверяю — до полуминуты…';
+  $('discordDiagAdvice').textContent = 'Смотрю логи Discord, системный прокси и что проходит через обход.';
+  $('discordDiagRows').innerHTML = '';
+  $('discordDiagAction').innerHTML = '';
+  let r = null;
+  try {
+    r = await window.zapret.diagnoseDiscord();
+  } catch {
+    r = null;
+  }
+  btn.disabled = false;
+  if (!r) {
+    $('discordDiagVerdict').textContent = 'Проверка не удалась';
+    $('discordDiagAdvice').textContent = '';
+    return;
+  }
+  $('discordDiagVerdict').textContent = r.verdict;
+  $('discordDiagAdvice').textContent = r.advice;
+  $('discordDiagRows').innerHTML = r.checks
+    .map((c) => {
+      const cls = c.ok === true ? ' ok' : c.ok === false ? ' bad' : '';
+      const icon = c.ok === true ? '✓' : c.ok === false ? '✗' : '·';
+      // Жёлтым — только подробности проблемы: «выключен» у прокси это хорошо,
+      // и выглядеть предупреждением не должно.
+      const note = c.ok === false ? 'dr-warn' : 'dr-note';
+      return `<div class="diag-row${cls}"><span class="dr-icon">${icon}</span><span>${esc(c.label)}</span><span class="${note}">${esc(c.detail)}</span></div>`;
+    })
+    .join('');
+  const a = DISCORD_DIAG_ACTIONS[r.action];
+  if (a) {
+    $('discordDiagAction').innerHTML = `<button class="btn sm" id="discordDiagFixBtn">${esc(a[0])}</button>`;
+    $('discordDiagFixBtn').onclick = a[1];
+  }
+}
+
+$('discordDiagBtn').onclick = runDiscordDiag;
+// Из «Обслуживания» — туда, где результат показывается, и сразу проверка.
+$('discordDiagTileBtn').onclick = () => {
+  switchPage('diagnostics');
+  runDiscordDiag();
+};
+
 // ─────────── Смена релиза ───────────
 
 async function changeRelease() {

@@ -11,6 +11,7 @@ mod autotest;
 mod carry;
 mod commands;
 mod diag;
+mod discorddiag;
 mod favicon;
 mod gamescan;
 mod history;
@@ -161,6 +162,7 @@ pub fn run() {
             commands::clear_discord_cache,
             commands::get_discord_quic,
             commands::set_discord_quic,
+            commands::diagnose_discord,
             commands::get_custom_lists,
             commands::save_custom_lists,
             commands::export_settings,

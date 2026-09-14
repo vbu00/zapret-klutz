@@ -295,6 +295,22 @@
     openResultFile: noop,
     getDiscordQuic: async () => ({ enabled: false, installed: true }),
     setDiscordQuic: noop,
+    diagnoseDiscord: async () => ({
+      verdict: 'Сеть в порядке, а Discord зависает',
+      advice: 'Всё, что Discord качает по обычному HTTPS, через обход проходит, — а сам он висит. Похоже на QUIC: приложение Discord ходит по нему, а тесты его не проверяют. Включи «Discord без QUIC» и перезапусти Discord полностью.',
+      action: 'enable-no-quic',
+      checks: [
+        { label: 'Discord установлен', ok: true, detail: 'версий: 1' },
+        { label: 'Последний запуск', ok: false, detail: '2026-09-13 22:07 — обновление прошло, а окно приложения не подключилось' },
+        { label: 'Системный прокси Windows', ok: true, detail: 'выключен' },
+        { label: 'Обход', ok: true, detail: 'general (ALT12) на zapret-discord-youtube-1.10.2' },
+        { label: 'Сервер обновлений Discord', ok: true, detail: 'код 200, 11 КБ за 0.2 с' },
+        { label: 'Страница приложения', ok: true, detail: 'код 200, 65 КБ' },
+        { label: 'Загрузка файла приложения', ok: true, detail: 'код 206, 1.0 МБ за 0.5 с' },
+        { label: 'Сервер сообщений', ok: true, detail: 'подключается и отвечает' },
+        { label: 'Discord без QUIC', ok: null, detail: 'выключено' },
+      ],
+    }),
     getReleaseRegression: async () => ({
       current: 'zapret-discord-youtube-1.10.2',
       previous: 'zapret-discord-youtube-1.9.9c',
