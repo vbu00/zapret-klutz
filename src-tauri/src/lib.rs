@@ -8,6 +8,7 @@
 
 mod autostart;
 mod autotest;
+mod carry;
 mod commands;
 mod diag;
 mod favicon;

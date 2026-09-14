@@ -3314,7 +3314,14 @@ async function switchToRelease(root) {
     return;
   }
   await afterReleaseLoaded();
-  showToast('Переключился на другой релиз', 'success');
+  showToast('Переключился на другой релиз', 'success', carriedBody(res));
+}
+
+// Что перенеслось из прежнего релиза. Молча переносить нельзя: человек
+// должен знать, что Game Filter и списки уже на месте, а не искать их.
+function carriedBody(res) {
+  const c = res && res.carried;
+  return c && c.length ? { body: `Перенесено из прежнего: ${c.join(', ')}.` } : undefined;
 }
 
 async function deleteReleaseRow(folderName) {
@@ -3801,6 +3808,8 @@ async function loadFromPath(p) {
     return;
   }
   await afterReleaseLoaded();
+  const body = carriedBody(res);
+  if (body) showToast('Релиз загружен', 'success', body);
 }
 
 // Размер архива из ответа GitHub — чтобы полоса загрузки показывала
@@ -3855,7 +3864,7 @@ $('downloadLatestBtn').onclick = async () => {
     showToast(res.error || 'Не удалось скачать', 'error');
     return;
   }
-  showToast('Zapret скачан и загружен', 'success');
+  showToast('Zapret скачан и загружен', 'success', carriedBody(res));
   await afterReleaseLoaded();
 };
 

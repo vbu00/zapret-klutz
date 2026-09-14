@@ -50,6 +50,10 @@ pub struct PersistedState {
     pub working_config: Option<String>,
     #[serde(rename = "workingAt")]
     pub working_at: Option<u64>,
+    /// Корень релиза, с которого переключились последний раз. Нужен, чтобы
+    /// предложить вернуться, если на новом стало хуже.
+    #[serde(rename = "previousRoot")]
+    pub previous_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

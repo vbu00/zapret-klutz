@@ -688,7 +688,7 @@ pub fn partition_by(nets: &[String], announced: &[String]) -> (Vec<String>, Vec<
 /// Сеть, которая где-то уже лежит, второй раз не кладётся, а группа того же
 /// оператора пополняется, а не заводится заново: иначе после трёх сборов
 /// подряд Riot был бы тремя одинаковыми группами.
-fn добавить_группу(groups: &mut Vec<Group>, asn: String, name: String, at: u64, nets: Vec<String>) {
+pub(crate) fn добавить_группу(groups: &mut Vec<Group>, asn: String, name: String, at: u64, nets: Vec<String>) {
     let занято: BTreeSet<String> = groups.iter().flat_map(|g| g.nets.iter().cloned()).collect();
     let mut свежие: Vec<String> = nets.into_iter().filter(|n| !занято.contains(n)).collect();
     свежие.sort();

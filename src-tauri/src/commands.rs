@@ -99,11 +99,41 @@ pub enum LoadPathResult {
         has_test_script: bool,
         #[serde(rename = "canInstallService")]
         can_install_service: bool,
+        /// Что перенесено из прежнего релиза, строками для человека.
+        carried: Vec<String>,
     },
     Err {
         ok: bool,
         error: String,
     },
+}
+
+/// Делает релиз текущим. Если до него был другой, переносит из прежнего
+/// настройки и запоминает его — чтобы можно было вернуться.
+///
+/// Одно место для всех путей смены релиза: папка, архив, скачивание, откат.
+/// Раньше каждый путь сам записывал новый корень, и перенести настройки
+/// было негде — они оставались в старой папке.
+fn set_root(app: &AppHandle, state: &AppState, root: &Path, can_install_service: bool) -> Vec<String> {
+    let old = state.persisted.lock().unwrap().root_path.clone();
+    let old = old.filter(|o| Path::new(o) != root);
+    let carried = match &old {
+        Some(o) if Path::new(o).is_dir() => crate::carry::carry_over(Path::new(o), root),
+        _ => Vec::new(),
+    };
+    {
+        let mut p = state.persisted.lock().unwrap();
+        if old.is_some() {
+            p.previous_root = old;
+        }
+        p.root_path = Some(root.to_string_lossy().to_string());
+        p.active_config = None;
+        p.installed_as_service = false;
+        p.started_at = None;
+        p.can_install_service = can_install_service;
+    }
+    save_state(app, state);
+    carried
 }
 
 /// Загрузка релиза из папки. Для .zip есть отдельная команда
@@ -130,21 +160,14 @@ pub fn load_path(app: AppHandle, state: State<AppState>, input_path: String) -> 
         };
     }
 
-    {
-        let mut p = state.persisted.lock().unwrap();
-        p.root_path = Some(path.to_string_lossy().to_string());
-        p.active_config = None;
-        p.installed_as_service = false;
-        p.started_at = None;
-        p.can_install_service = check.can_install_service;
-    }
-    save_state(&app, &state);
+    let carried = set_root(&app, &state, &path, check.can_install_service);
 
     LoadPathResult::Ok {
         ok: true,
         root: path.to_string_lossy().to_string(),
         configs: check.configs,
         has_test_script: check.has_test_script,
+        carried,
         can_install_service: check.can_install_service,
     }
 }
@@ -1927,7 +1950,7 @@ pub fn scan_game_from_log(
     })
 }
 
-fn описание_фильтра(mode: &str) -> &'static str {
+pub(crate) fn описание_фильтра(mode: &str) -> &'static str {
     match mode {
         "all" => "TCP и UDP",
         "udp" => "UDP",
@@ -2142,42 +2165,33 @@ pub struct DownloadResult {
     ok: bool,
     error: Option<String>,
     root: Option<String>,
+    /// Что перенесено из прежнего релиза.
+    carried: Vec<String>,
 }
 
 /// Скачивает свежий релиз и сразу распаковывает — интерфейсу нужен готовый
 /// корень, а не путь к архиву.
 #[tauri::command(async)]
 pub fn download_latest_release(app: AppHandle, state: State<AppState>) -> DownloadResult {
+    let fail = |e: String| DownloadResult { ok: false, error: Some(e), root: None, carried: Vec::new() };
     let zip = match crate::releases::download_latest(&app) {
         Ok(p) => p,
-        Err(e) => return DownloadResult { ok: false, error: Some(e), root: None },
+        Err(e) => return fail(e),
     };
     let name = zip.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "release".into());
     let target = crate::releases::releases_dir(&app).join(&name);
     let root = match crate::releases::extract_zip(&zip, &target) {
         Ok(r) => r,
-        Err(e) => return DownloadResult { ok: false, error: Some(e), root: None },
+        Err(e) => return fail(e),
     };
     let _ = std::fs::remove_file(&zip);
 
     let check = validate_release(&root);
     if !check.ok {
-        return DownloadResult {
-            ok: false,
-            error: check.error.or_else(|| Some("Скачанный архив не похож на релиз zapret.".into())),
-            root: None,
-        };
+        return fail(check.error.unwrap_or_else(|| "Скачанный архив не похож на релиз zapret.".into()));
     }
-    {
-        let mut p = state.persisted.lock().unwrap();
-        p.root_path = Some(root.to_string_lossy().to_string());
-        p.active_config = None;
-        p.installed_as_service = false;
-        p.started_at = None;
-        p.can_install_service = check.can_install_service;
-    }
-    save_state(&app, &state);
-    DownloadResult { ok: true, error: None, root: Some(root.to_string_lossy().to_string()) }
+    let carried = set_root(&app, &state, &root, check.can_install_service);
+    DownloadResult { ok: true, error: None, root: Some(root.to_string_lossy().to_string()), carried }
 }
 
 #[derive(Debug, Serialize)]

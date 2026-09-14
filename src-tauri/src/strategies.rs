@@ -124,6 +124,21 @@ pub fn is_variant(name: &str) -> bool {
     name.starts_with(MARK) && name.to_lowercase().ends_with(".bat")
 }
 
+/// Из какого конфига сделан вариант: `general (Z2K general (ALT11) sld1).bat`
+/// → `general (ALT11).bat`. Нужно, чтобы при смене релиза пересоздать
+/// варианты от того же образца, а не копировать файлы со старым конфигом.
+///
+/// Суффикс — последнее слово; у вариантов приёма обмана перед ним ещё «обман».
+pub fn template_of(variant: &str) -> Option<String> {
+    let inner = variant.strip_prefix(MARK)?.strip_suffix(").bat")?;
+    let (base, _suffix) = inner.rsplit_once(' ')?;
+    let base = base.strip_suffix(" обман").unwrap_or(base);
+    if base.is_empty() {
+        return None;
+    }
+    Some(format!("{base}.bat"))
+}
+
 /// Сколько вариантов уже лежит в папке релиза.
 pub fn count(root: &Path) -> usize {
     crate::release::list_configs(root).iter().filter(|c| is_variant(c)).count()
@@ -468,5 +483,12 @@ mod unit_tests {
         assert!(!is_variant("general (ALT).bat"));
         assert!(!is_variant("general.bat"));
         assert!(!is_variant("general (Z2K sld1).txt"));
+        // Образец по имени варианта — для пересоздания в новом релизе.
+        assert_eq!(template_of(&variant_name("general (ALT11).bat", "sld1")).as_deref(), Some("general (ALT11).bat"));
+        assert_eq!(
+            template_of("general (Z2K general (ALT11) обман badseq).bat").as_deref(),
+            Some("general (ALT11).bat")
+        );
+        assert_eq!(template_of("general (ALT11).bat"), None);
     }
 }
