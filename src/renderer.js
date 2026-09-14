@@ -2994,7 +2994,6 @@ function startScanUI(secs) {
     $('gameScanFill').style.width = '0%';
     gameMsg('');
     $('gameScanBtn').disabled = true;
-    $('gameScanDeepBtn').disabled = true;
 
     const начало = Date.now();
     const tick = () => {
@@ -3009,7 +3008,6 @@ function startScanUI(secs) {
         gameScanBusy = false;
         $('gameScanning').classList.add('hidden');
         $('gameScanBtn').disabled = false;
-        $('gameScanDeepBtn').disabled = false;
     };
 }
 
@@ -3025,25 +3023,30 @@ function gameScanTick(p) {
     );
 }
 
-$('gameScanDeepBtn').onclick = async () => {
+// Сбор адресов — одна кнопка. Раньше их было две, и обе упирались в то, что
+// человек должен был сделать сам: обычный сбор искал игру по таблице
+// соединений, где у игрового UDP нет адреса, и отвечал «не вижу игры»;
+// глубокий требовал заранее включённый Game Filter и без него молча не
+// находил ничего. Теперь Game Filter на время сбора включает сам Klutz, а
+// процесс игры узнаёт по исходящему порту пакета.
+const GAME_SCAN_SECS = 60;
+
+$('gameScanBtn').onclick = async () => {
     const ok = await showConfirm(
-        'Глубокий сбор берёт адреса из пакетов, которые видит сам обход. Так виден и ' +
-            'игровой UDP — тот, которого нет в таблице соединений, а это как раз трафик ' +
-            'матча.\n\n' +
-            'Обход при этом дважды перезапустится: включить подробный режим и убрать его. ' +
-            'Связь на секунду прервётся. Игра должна работать всё это время.\n\n' +
-            'Game Filter должен быть включён, иначе игровые порты идут мимо обхода и ' +
-            'собирать будет нечего.'
+        'Запусти игру и зайди в матч: сбор идёт минуту, и всё это время игра должна ' +
+            'работать — адреса видны, только когда она реально шлёт пакеты.\n\n' +
+            'На время сбора Klutz включит Game Filter и подробный режим обхода, связь ' +
+            'дважды прервётся на секунду. Процесс игры он найдёт сам.'
     );
     if (!ok) return;
 
-    const stopUI = startScanUI(30);
+    const stopUI = startScanUI(GAME_SCAN_SECS);
     $('gameScanSub').textContent = 'слушаю обход…';
-    $('gameScanProc').textContent = 'обход';
+    $('gameScanProc').textContent = 'ищу игру';
     const stopProgress = window.zapret.onGameScan(gameScanTick);
     let note = '';
     try {
-        const r = await window.zapret.scanGameFromLog(30);
+        const r = await window.zapret.scanGameFromLog(GAME_SCAN_SECS);
         note = r.note;
     } catch (e) {
         note = typeof e === 'string' ? e : 'Не удалось собрать.';
@@ -3083,50 +3086,6 @@ $('gameScanClearBtn').onclick = async () => {
     gameAll.clear();
     await loadGames();
     gameMsg(res.ok ? 'Адреса игр убраны.' : res.error || 'Не удалось убрать.');
-};
-
-$('gameScanBtn').onclick = async () => {
-    // Кого именно сканировать — показываем ДО, а не ставим перед фактом.
-    // Ошибиться тут дорого: адреса постороннего процесса уедут в обход.
-    const cands = await window.zapret.gameCandidates();
-    if (!cands.length) {
-        gameMsg(
-            'Не вижу ни одного процесса, похожего на игру. Запусти игру, зайди в меню ' +
-                'или начни матч — адреса появляются, когда она реально подключается.'
-        );
-        return;
-    }
-    const top = cands[0];
-    const остальные = cands.slice(1, 4).map((c) => c.name).join(', ');
-    const ok = await showConfirm(
-        `Нашёл: ${top.name} — ${top.addrs} ${plural(top.addrs, 'адрес', 'адреса', 'адресов')} ` +
-            `на портах ${top.ports.slice(0, 6).join(', ')}.\n\n` +
-            (остальные ? `Похожи также: ${остальные}.\n\n` : '') +
-            'Сканирование займёт полминуты, и всё это время игра должна работать: ' +
-            'зайди в меню, начни матч. Адреса появляются только тогда, когда игра ' +
-            'реально подключается — до серверов, которые режут, она не дотянется. ' +
-            'Поэтому сканировать лучше при уже работающем обходе.'
-    );
-    if (!ok) return;
-
-    const stopUI = startScanUI(30);
-    $('gameScanSub').textContent = 'смотрю…';
-    $('gameScanProc').textContent = top.name;
-    const stopProgress = window.zapret.onGameScan(gameScanTick);
-    let note = '';
-    try {
-        const r = await window.zapret.scanGameTraffic([], 30);
-        const ports = [];
-        if (r.tcpPorts && r.tcpPorts.length) ports.push('TCP ' + r.tcpPorts.join(', '));
-        if (r.udpPorts && r.udpPorts.length) ports.push('UDP ' + r.udpPorts.join(', '));
-        note = r.note + (ports.length ? ` Порты: ${ports.join('; ')}.` : '');
-    } catch (e) {
-        note = typeof e === 'string' ? e : 'Не удалось отсканировать.';
-    }
-    stopProgress();
-    stopUI();
-    await loadGames();
-    gameMsg(note);
 };
 
 $('gameFilterSeg2').querySelectorAll('.seg-btn').forEach((b) => {

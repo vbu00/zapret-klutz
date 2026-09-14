@@ -19,7 +19,7 @@
 //! дать игре дотянуться, потом закрепить найденное.
 
 use serde::Serialize;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
@@ -32,7 +32,7 @@ pub struct Conn {
     pub port: u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Proto {
     Tcp,
@@ -285,6 +285,8 @@ pub fn guess_game(
 pub struct ScanResult {
     /// Нашёлся ли вообще процесс игры хоть раз за время скана.
     pub running: bool,
+    /// Процесс, чьи адреса собраны. `None` — игру не нашли.
+    pub process: Option<String>,
     /// Внешние адреса, отсортированные и без повторов.
     pub addrs: Vec<String>,
     /// Удалённые порты — по ним видно, TCP тут или UDP и какой диапазон.
@@ -328,6 +330,7 @@ pub fn scan(
     if images.is_empty() {
         return ScanResult {
             running: false,
+            process: None,
             addrs: Vec::new(),
             tcp_ports: Vec::new(),
             udp_ports: Vec::new(),
@@ -386,6 +389,7 @@ pub fn scan(
     }
     ScanResult {
         running,
+        process: угадан.clone(),
         addrs: addrs.into_iter().collect(),
         tcp_ports: tcp.into_iter().collect(),
         udp_ports: udp.into_iter().collect(),
@@ -920,9 +924,19 @@ fn поле(line: &str, name: &str) -> Option<u16> {
         .ok()
 }
 
+/// Что известно об адресе, пойманном в логе.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Hit {
+    pub udp: bool,
+    pub tcp: bool,
+    /// Протокол и исходящий порт пакетов к этому адресу. По порту находим
+    /// процесс: локальные порты система показывает даже у несоединённого UDP.
+    pub sports: BTreeSet<(Proto, u16)>,
+}
+
 /// Копилка адресов, пока идёт сбор из лога. `None` — сбор не идёт, и тогда
 /// строки лога через неё просто пролетают.
-pub static HARVEST: std::sync::Mutex<Option<BTreeSet<String>>> = std::sync::Mutex::new(None);
+pub static HARVEST: std::sync::Mutex<Option<BTreeMap<String, Hit>>> = std::sync::Mutex::new(None);
 
 /// Идёт сбор адресов игры. Сбор длится до пяти минут и перезапускает обход:
 /// самолечение, переключив в это время стратегию, было бы молча отменено
@@ -969,24 +983,31 @@ pub fn адрес_или_сеть(s: &str) -> bool {
 }
 
 pub fn harvest_start() {
-    *HARVEST.lock().unwrap_or_else(|e| e.into_inner()) = Some(BTreeSet::new());
+    *HARVEST.lock().unwrap_or_else(|e| e.into_inner()) = Some(BTreeMap::new());
 }
 
-/// Останавливает сбор и отдаёт накопленное.
+/// Останавливает сбор и отдаёт накопленное вместе с тем, откуда оно шло.
+pub fn harvest_take() -> BTreeMap<String, Hit> {
+    HARVEST.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default()
+}
+
+/// Останавливает сбор и отдаёт только адреса.
 pub fn harvest_stop() -> Vec<String> {
-    HARVEST
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take()
-        .map(|s| s.into_iter().collect())
-        .unwrap_or_default()
+    harvest_take().into_keys().collect()
+}
+
+/// Накопленное прямо сейчас, без остановки сбора, — для живого счётчика.
+pub fn harvest_snapshot() -> BTreeMap<String, Hit> {
+    HARVEST.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()
 }
 
 pub fn harvest_active() -> bool {
     HARVEST.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
-/// Сколько адресов накопилось прямо сейчас.
+/// Сколько адресов накопилось прямо сейчас. Живой счётчик сбора теперь
+/// считает только адреса игры (`pick_game`), так что это нужно лишь тестам.
+#[cfg(test)]
 pub fn harvest_len() -> usize {
     HARVEST
         .lock()
@@ -1000,11 +1021,157 @@ pub fn harvest_len() -> usize {
 /// сперва самая дешёвая проверка — идёт ли сбор вообще.
 pub fn harvest_line(line: &str) {
     let mut g = HARVEST.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(set) = g.as_mut() else { return };
+    let Some(map) = g.as_mut() else { return };
     if let Some(a) = parse_log_addr(line) {
         if is_external(&a.ip) && стоит_собирать(a.proto, a.port) {
-            set.insert(a.ip.to_string());
+            let hit = map.entry(a.ip.to_string()).or_default();
+            match a.proto {
+                Proto::Udp => hit.udp = true,
+                Proto::Tcp => hit.tcp = true,
+            }
+            // Порты к одному адресу почти всегда одни и те же. Потолок — чтобы
+            // шквал подробного лога не раздувал копилку.
+            if let Some(sport) = a.sport {
+                if hit.sports.len() < 32 {
+                    hit.sports.insert((a.proto, sport));
+                }
+            }
         }
+    }
+}
+
+/// Локальный сокет из строки `netstat -ano`: протокол, локальный порт, процесс.
+///
+/// У несоединённого UDP напротив стоит «*:*», и адреса собеседника в такой
+/// строке нет. Зато есть ЛОКАЛЬНЫЙ порт — и его хватает, чтобы узнать, чей
+/// пакет поймал обход: у пакета в логе тот же исходящий порт.
+pub fn parse_local_socket(line: &str) -> Option<(Proto, u16, u32)> {
+    let f: Vec<&str> = line.split_whitespace().collect();
+    if f.len() < 4 {
+        return None;
+    }
+    let proto = match f[0].to_ascii_uppercase().as_str() {
+        "TCP" => Proto::Tcp,
+        "UDP" => Proto::Udp,
+        _ => return None,
+    };
+    let pid: u32 = f[f.len() - 1].parse().ok()?;
+    let (_, port) = split_addr(f[1])?;
+    Some((proto, port, pid))
+}
+
+pub fn local_sockets() -> Vec<(Proto, u16, u32)> {
+    crate::sys::run("netstat", &["-ano"])
+        .lines()
+        .filter_map(parse_local_socket)
+        .collect()
+}
+
+/// Процессы, которые шлют UDP на высокие порты, но игрой не являются.
+///
+/// Без этого списка игрой назвали бы того, кто громче всех: голос Discord,
+/// DHT торрента, браузер, VPN-клиент. Сравниваем имя образа без регистра.
+fn не_игра(name: &str) -> bool {
+    const ИМЕНА: &[&str] = &[
+        "system", "svchost.exe", "lsass.exe", "services.exe", "wininit.exe",
+        "winws.exe", "klutz.exe", "tgwsproxyheadless.exe",
+        "discord.exe", "discordptb.exe", "discordcanary.exe",
+        "chrome.exe", "msedge.exe", "msedgewebview2.exe", "firefox.exe", "opera.exe",
+        "browser.exe", "brave.exe", "vivaldi.exe", "arc.exe",
+        "telegram.exe", "ayugram.exe", "whatsapp.exe", "zoom.exe", "ms-teams.exe",
+        "teams.exe", "skype.exe", "spotify.exe", "steamwebhelper.exe",
+        "onedrive.exe", "dropbox.exe",
+        "qbittorrent.exe", "utorrent.exe", "bittorrent.exe", "transmission-qt.exe",
+        "hiddify.exe", "hiddifycli.exe", "sing-box.exe", "xray.exe", "v2rayn.exe",
+        "nekoray.exe", "nekobox.exe", "clash-verge.exe", "happ.exe", "amneziavpn.exe",
+        "wireguard.exe", "openvpn.exe",
+        "anydesk.exe", "teamviewer.exe", "rustdesk.exe", "parsecd.exe",
+    ];
+    let n = name.to_ascii_lowercase();
+    ИМЕНА.contains(&n.as_str())
+}
+
+/// Итог сбора: чей это трафик и что из него берём.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Pick {
+    /// Процесс игры. `None` — игру среди отправителей не нашли.
+    pub process: Option<String>,
+    pub addrs: Vec<String>,
+    pub udp: bool,
+    pub tcp: bool,
+    /// Кого видели, но за игру не приняли, — чтобы сказать человеку, чьи
+    /// пакеты шли вместо игровых.
+    pub others: BTreeSet<String>,
+    /// Пакеты были, но ни один не удалось привязать к процессу.
+    pub unattributed: bool,
+}
+
+/// Кто из отправителей игра и какие адреса её.
+///
+/// Раньше в список шло всё, что увидел обход, от любого процесса. С Game
+/// Filter на всех портах это значит и голос Discord, и торрент. Теперь адрес
+/// берётся, только если пакет к нему отправил процесс игры, а игра — тот, у
+/// кого больше всего разных адресов среди тех, кто не в списке «не игра».
+///
+/// Чистая функция: копилку, карту портов и имена собирает вызывающий.
+pub fn pick_game(
+    hits: &BTreeMap<String, Hit>,
+    owners: &HashMap<(Proto, u16), u32>,
+    names: &HashMap<u32, String>,
+) -> Pick {
+    let mut per: BTreeMap<&str, (BTreeSet<&str>, bool, bool)> = BTreeMap::new();
+    let mut others = BTreeSet::new();
+    let mut привязано = false;
+    for (ip, hit) in hits {
+        for (proto, sport) in &hit.sports {
+            let Some(&pid) = owners.get(&(*proto, *sport)) else { continue };
+            if !настоящий_процесс(pid) {
+                continue;
+            }
+            let Some(name) = names.get(&pid) else { continue };
+            привязано = true;
+            if не_игра(name) {
+                others.insert(name.clone());
+                continue;
+            }
+            let e = per.entry(name.as_str()).or_default();
+            e.0.insert(ip.as_str());
+            match proto {
+                Proto::Udp => e.1 = true,
+                Proto::Tcp => e.2 = true,
+            }
+        }
+    }
+    // При равенстве — по имени, чтобы выбор не плясал от запуска к запуску.
+    let best = per
+        .into_iter()
+        .max_by(|a, b| (a.1).0.len().cmp(&(b.1).0.len()).then_with(|| b.0.cmp(a.0)));
+    match best {
+        Some((name, (ips, udp, tcp))) => Pick {
+            process: Some(name.to_string()),
+            addrs: ips.into_iter().map(str::to_string).collect(),
+            udp,
+            tcp,
+            others,
+            unattributed: false,
+        },
+        None => Pick { others, unattributed: !привязано && !hits.is_empty(), ..Default::default() },
+    }
+}
+
+/// Каким оставить Game Filter после удачного сбора.
+///
+/// Собранные адреса без фильтра лежат без дела: игровые профили конфигов
+/// привязаны к его портам. Включаем то, по чему игра реально ходила, и не
+/// отбираем того, что человек включал сам.
+pub fn режим_фильтра(было: &str, udp: bool, tcp: bool) -> &'static str {
+    let udp = udp || было == "udp" || было == "all";
+    let tcp = tcp || было == "tcp" || было == "all";
+    match (udp, tcp) {
+        (true, true) => "all",
+        (true, false) => "udp",
+        (false, true) => "tcp",
+        (false, false) => "off",
     }
 }
 
@@ -2023,6 +2190,100 @@ mod unit_tests {
         let got = harvest_stop();
         assert_eq!(got, vec!["104.16.0.1"]);
         assert!(!harvest_active(), "после остановки сбор не идёт");
+    }
+
+    #[test]
+    fn локальный_порт_из_строки_netstat() {
+        assert_eq!(
+            parse_local_socket("  UDP    0.0.0.0:50000          *:*                    1234"),
+            Some((Proto::Udp, 50000, 1234)),
+            "у несоединённого UDP локальный порт есть, и он-то нам и нужен"
+        );
+        assert_eq!(
+            parse_local_socket("  TCP    192.168.1.5:51000      104.16.0.1:443         ESTABLISHED     4242"),
+            Some((Proto::Tcp, 51000, 4242))
+        );
+        assert_eq!(
+            parse_local_socket("  UDP    [::]:3074              *:*                    99"),
+            Some((Proto::Udp, 3074, 99))
+        );
+        assert_eq!(parse_local_socket("  Proto  Local Address  Foreign Address  State  PID"), None);
+        assert_eq!(parse_local_socket(""), None);
+    }
+
+    #[test]
+    fn копилка_помнит_исходящий_порт() {
+        let _g = ТЕСТ_КОПИЛКИ.lock().unwrap_or_else(|e| e.into_inner());
+        harvest_start();
+        harvest_line("IP4: 192.168.1.16 => 146.66.155.73 proto=udp ttl=128 sport=50282 dport=27015");
+        harvest_line("IP4: 192.168.1.16 => 146.66.155.73 proto=udp ttl=128 sport=50282 dport=27016");
+        let got = harvest_take();
+        let hit = &got["146.66.155.73"];
+        assert!(hit.udp && !hit.tcp);
+        assert_eq!(hit.sports.iter().copied().collect::<Vec<_>>(), vec![(Proto::Udp, 50282)]);
+        assert!(!harvest_active());
+    }
+
+    fn попадание(proto: Proto, sport: u16) -> Hit {
+        let mut h = Hit::default();
+        match proto {
+            Proto::Udp => h.udp = true,
+            Proto::Tcp => h.tcp = true,
+        }
+        h.sports.insert((proto, sport));
+        h
+    }
+
+    #[test]
+    fn игра_узнаётся_по_исходящему_порту_а_чужое_не_берётся() {
+        let hits: BTreeMap<String, Hit> = [
+            ("146.66.155.73".to_string(), попадание(Proto::Udp, 50282)),
+            ("155.133.226.76".to_string(), попадание(Proto::Udp, 50282)),
+            // Голос Discord на высоком порту — с Game Filter на всё он тоже
+            // идёт через обход и раньше уезжал в игровой список.
+            ("66.22.196.10".to_string(), попадание(Proto::Udp, 61000)),
+            // Порт без владельца: чей пакет — неизвестно, брать нельзя.
+            ("5.6.7.8".to_string(), попадание(Proto::Udp, 40000)),
+        ]
+        .into_iter()
+        .collect();
+        let owners: HashMap<(Proto, u16), u32> =
+            [((Proto::Udp, 50282), 700), ((Proto::Udp, 61000), 800)].into_iter().collect();
+        let names: HashMap<u32, String> =
+            [(700, "cs2.exe".to_string()), (800, "Discord.exe".to_string())].into_iter().collect();
+        let p = pick_game(&hits, &owners, &names);
+        assert_eq!(p.process.as_deref(), Some("cs2.exe"));
+        assert_eq!(p.addrs, vec!["146.66.155.73", "155.133.226.76"]);
+        assert!(p.udp && !p.tcp);
+        assert!(p.others.contains("Discord.exe"), "{:?}", p.others);
+    }
+
+    #[test]
+    fn без_игры_ничего_не_кладём_и_объясняем_почему() {
+        let hits: BTreeMap<String, Hit> =
+            [("66.22.196.10".to_string(), попадание(Proto::Udp, 61000))].into_iter().collect();
+        let owners: HashMap<(Proto, u16), u32> = [((Proto::Udp, 61000), 800)].into_iter().collect();
+        let names: HashMap<u32, String> = [(800, "Discord.exe".to_string())].into_iter().collect();
+        let p = pick_game(&hits, &owners, &names);
+        assert_eq!(p.process, None);
+        assert!(p.addrs.is_empty());
+        assert!(!p.unattributed);
+        assert!(p.others.contains("Discord.exe"));
+
+        // Пакеты были, но чьи — неизвестно: в список ничего, и сказать надо иначе.
+        let p = pick_game(&hits, &HashMap::new(), &names);
+        assert_eq!(p.process, None);
+        assert!(p.addrs.is_empty());
+        assert!(p.unattributed);
+    }
+
+    #[test]
+    fn game_filter_после_сбора() {
+        assert_eq!(режим_фильтра("off", true, false), "udp");
+        assert_eq!(режим_фильтра("off", false, true), "tcp");
+        assert_eq!(режим_фильтра("tcp", true, false), "all", "включённое человеком не отбираем");
+        assert_eq!(режим_фильтра("all", true, false), "all");
+        assert_eq!(режим_фильтра("off", false, false), "off");
     }
 
     /// Живая проверка: `cargo test -- --ignored живой_скан --nocapture`.

@@ -1741,105 +1741,184 @@ pub fn scan_game_traffic(
     Ok(r)
 }
 
-/// Глубокий сбор: адреса берутся из лога самого обхода.
+/// Сбор адресов игры: адреса берутся из пакетов, которые видит сам обход.
 ///
-/// Чем отличается от обычного. Обычный читает таблицу сокетов, а она
-/// показывает удалённый адрес только у соединённых. Игровой матч ходит через
-/// sendto, и напротив такого сокета стоит «*:*» — замерено: из 77 строк UDP
-/// адрес был у двух. Здесь же адреса даёт сам winws: он сидит на WinDivert и
-/// видит пакеты, а с `--debug` печатает каждый, который попал под `--wf-*`.
+/// Таблица сокетов для этого не годится: удалённый адрес в ней есть только у
+/// соединённых, а матч ходит через sendto, и напротив такого сокета стоит
+/// «*:*» — замерено: из 77 строк UDP адрес был у двух. winws же сидит на
+/// WinDivert и с `--debug` печатает каждый пакет, попавший под `--wf-*`.
 ///
-/// Цена — перезапуск обхода дважды: включить `--debug` и потом убрать.
-/// Держать его постоянно нельзя, вывод слишком обильный.
+/// Что раньше должен был сделать человек, теперь делается здесь.
+/// - Game Filter. Без него игровые порты в `--wf-*` не попадают, и winws их
+///   просто не видит: на свежем релизе сбор не находил ничего. На время сбора
+///   включаем фильтр на всё, а после удачного сбора оставляем на тех
+///   протоколах, по которым ходила игра, — иначе собранное лежало бы без дела.
+/// - Процесс игры. Раньше в список шло всё, что увидел обход. Теперь раз в две
+///   секунды снимается, чей какой локальный порт, и адрес берётся, только
+///   если пакет к нему отправила игра, а не голос Discord или торрент.
+///
+/// Обход перезапускается дважды: с `--debug` и обратно. Второй раз — ПОСЛЕ
+/// записи адресов и фильтра. Раньше порядок был обратный: обход поднимался со
+/// старым списком, и собранное начинало работать лишь со следующим запуском.
 #[tauri::command(async)]
 pub fn scan_game_from_log(
     app: AppHandle,
     state: State<AppState>,
     seconds: Option<u64>,
 ) -> Result<crate::gamescan::ScanResult, String> {
+    use crate::gamescan as gs;
     let root = root_of(&state).ok_or("Сначала загрузи релиз zapret.")?;
-    let _scan = crate::gamescan::ScanGuard::acquire(&state)?;
-    let active = state
-        .persisted
-        .lock()
-        .unwrap()
-        .active_config
-        .clone()
-        .ok_or("Сначала включи обход — собирать не из чего.")?;
+    let _scan = gs::ScanGuard::acquire(&state)?;
+    let (active, as_service) = {
+        let p = state.persisted.lock().unwrap();
+        (p.active_config.clone(), p.installed_as_service)
+    };
+    if as_service {
+        return Err("Обход сейчас держится службой Windows, а её пакетов Klutz не видит. \
+                    Выключи «Держать обход включённым», включи обход из Klutz и повтори."
+            .into());
+    }
+    let active = active.ok_or("Сначала включи обход: адреса Klutz берёт из пакетов, которые через него идут.")?;
     if !crate::winws::is_winws_running() {
         return Err("Обход выключен. Включи его, запусти игру и повтори.".into());
     }
 
-    let secs = seconds.unwrap_or(30).clamp(5, 300);
-    crate::gamescan::harvest_start();
-    // Перезапуск с --debug. Если он не удался, копилку обязательно снимаем:
-    // иначе следующий штатный запуск тоже уехал бы в отладочный режим.
+    let secs = seconds.unwrap_or(60).clamp(10, 300);
+    let было = crate::toggles::current_game_filter(&root);
+    if было != "all" {
+        crate::toggles::set_game_filter(&root, "all")?;
+    }
+    // Ранний выход обязан вернуть всё как было: копилку снять (иначе и
+    // следующий штатный запуск уехал бы в подробный режим), фильтр вернуть,
+    // обход поднять обычным.
+    let откат = || {
+        let _ = gs::harvest_stop();
+        let _ = crate::toggles::set_game_filter(&root, &было);
+        let _ = crate::monitor::apply_config(&app, &active);
+    };
+
+    gs::harvest_start();
     if let Err(e) = crate::monitor::apply_config(&app, &active) {
-        let _ = crate::gamescan::harvest_stop();
+        откат();
         return Err(format!("Не удалось перезапустить обход: {e}"));
     }
-    // Живой лог есть не всегда. Когда аргументы из .bat разобрать не вышло,
-    // обход поднимается через cmd, а вывод уходит в никуда — и собирать
-    // тогда нечего в принципе. Раньше этот случай молчал: сбор честно ждал
-    // полминуты и сообщал, что игра ничего не отправляла, хотя мы просто
-    // никуда не смотрели.
+    // Живой лог есть не всегда: когда аргументы из .bat разобрать не вышло,
+    // обход поднимается через cmd, и вывод уходит в никуда.
     if !crate::winws::last_run_had_logs() {
-        let _ = crate::gamescan::harvest_stop();
-        let _ = crate::monitor::apply_config(&app, &active);
-        return Err("Этот конфиг запускается через .bat, и его вывод нам недоступен — \
-                    глубокий сбор на нём работать не может. Попробуй обычный сбор."
+        откат();
+        return Err("Этот конфиг запускается через .bat, и его вывод Klutz не видит — \
+                    собрать адреса на нём не выйдет. Включи другую стратегию и повтори."
             .into());
     }
 
+    // Чей какой локальный порт — копим за весь сбор. Первый владелец порта
+    // и есть тот, кто слал с него пакеты: сокет игры живёт весь матч.
+    let mut owners: std::collections::HashMap<(gs::Proto, u16), u32> = Default::default();
+    let mut names = gs::process_names();
     let started = std::time::Instant::now();
-    while started.elapsed() < std::time::Duration::from_secs(secs) {
-        std::thread::sleep(std::time::Duration::from_secs(1));
+    let total = std::time::Duration::from_secs(secs);
+    let mut ticks = 0u32;
+    while started.elapsed() < total {
+        for (proto, port, pid) in gs::local_sockets() {
+            owners.entry((proto, port)).or_insert(pid);
+        }
+        // Список процессов дороже таблицы и меняется редко.
+        if ticks % 5 == 4 {
+            names.extend(gs::process_names());
+        }
+        let сейчас = gs::pick_game(&gs::harvest_snapshot(), &owners, &names);
         let _ = app.emit(
             "game-scan",
-            serde_json::json!({ "proc": "обход", "found": crate::gamescan::harvest_len() }),
+            serde_json::json!({
+                "proc": сейчас.process.as_deref().unwrap_or("ищу игру"),
+                "found": сейчас.addrs.len(),
+            }),
         );
+        ticks += 1;
+        let left = total.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            break;
+        }
+        std::thread::sleep(left.min(std::time::Duration::from_secs(2)));
     }
 
-    let addrs = crate::gamescan::harvest_stop();
-    // Снимаем --debug тем же путём: копилка уже выключена, значит запуск
-    // будет обычным.
+    let hits = gs::harvest_take();
+    for (proto, port, pid) in gs::local_sockets() {
+        owners.entry((proto, port)).or_insert(pid);
+    }
+    names.extend(gs::process_names());
+    let pick = gs::pick_game(&hits, &owners, &names);
+
+    let note = match &pick.process {
+        Some(game) => {
+            let пропущено = match gs::save_ips(&root, &pick.addrs) {
+                Ok(p) => p,
+                Err(e) => {
+                    откат();
+                    return Err(e);
+                }
+            };
+            let режим = gs::режим_фильтра(&было, pick.udp, pick.tcp);
+            let _ = crate::toggles::set_game_filter(&root, режим);
+            let mut n = format!(
+                "Игра: {game}, поймано адресов: {}. В список идёт не сам адрес: Klutz узнаёт \
+                 оператора и берёт все его сети — одного пойманного сервера хватает, чтобы \
+                 накрыть пул.",
+                pick.addrs.len()
+            );
+            if режим != было {
+                n.push_str(&format!(
+                    " Game Filter включён на {} — без него игровые порты обход не видит, и \
+                     список лежал бы без дела.",
+                    описание_фильтра(режим)
+                ));
+            }
+            if !пропущено.is_empty() {
+                n.push_str(&облачные(&пропущено));
+            }
+            n
+        }
+        None => {
+            let _ = crate::toggles::set_game_filter(&root, &было);
+            if pick.unattributed {
+                "Пакеты через обход шли, но ни один не удалось привязать к процессу, и в \
+                 список ничего не положено. Повтори сбор прямо в матче."
+                    .to_string()
+            } else if !pick.others.is_empty() {
+                format!(
+                    "Игрового трафика не нашлось: пакеты отправляли только {}. Зайди в матч и \
+                     повтори.",
+                    pick.others.iter().take(4).cloned().collect::<Vec<_>>().join(", ")
+                )
+            } else {
+                "За это время через обход не прошло ни одного игрового пакета. Игра была в \
+                 матче? В меню она почти ничего не шлёт."
+                    .to_string()
+            }
+        }
+    };
+    // Копилка снята, значит запуск без --debug, а список и фильтр уже на месте.
     let _ = crate::monitor::apply_config(&app, &active);
 
-    let mut note = if addrs.is_empty() {
-        "обход за это время не увидел ни одного подходящего адреса. Причин может быть \
-         несколько: игра молчала; Game Filter выключен или стоит не на том протоколе \
-         (матч обычно ходит по UDP); нужные порты не попали в фильтр конфига; winws \
-         упал. Начни с Game Filter в режиме «оба»"
-            .to_string()
-    } else {
-        format!(
-            "поймано адресов: {}. Взяты из пакетов, которые видел сам обход, — сюда \
-             попадает и игровой UDP, невидимый в таблице соединений. В список идёт не \
-             сам адрес: Klutz выясняет, чей он, и кладёт все сети этого оператора. \
-             Матч подключается к одному серверу из пула, и одного пойманного хватает, \
-             чтобы накрыть остальные",
-            addrs.len()
-        )
-    };
-    // Перезапуск здесь один. Раньше их было два подряд: один чтобы снять
-    // --debug, второй после записи адресов. Первый успевал поднять обход со
-    // старым списком, и он же лишний раз рвал связь.
-    if !addrs.is_empty() {
-        let пропущено = crate::gamescan::save_ips(&root, &addrs)?;
-        if !пропущено.is_empty() {
-            note.push_str(&облачные(&пропущено));
-        }
-    }
-    Ok(crate::gamescan::ScanResult {
-        // Именно проверка, а не «раз дошли сюда, значит работает»: winws мог
-        // упасть за эти полминуты, и заявлять обратное мы не вправе.
+    Ok(gs::ScanResult {
+        // Именно проверка: winws мог упасть за время сбора.
         running: crate::winws::is_winws_running(),
-        addrs,
+        process: pick.process.clone(),
+        addrs: pick.addrs,
         tcp_ports: Vec::new(),
         udp_ports: Vec::new(),
-        ticks: secs as u32,
+        ticks,
         note,
     })
+}
+
+fn описание_фильтра(mode: &str) -> &'static str {
+    match mode {
+        "all" => "TCP и UDP",
+        "udp" => "UDP",
+        "tcp" => "TCP",
+        _ => "выключен",
+    }
 }
 
 /// Переносит собранные адреса из «обходить» в «не трогать».
