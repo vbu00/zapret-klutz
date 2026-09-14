@@ -2834,14 +2834,21 @@ function renderGameGroups(groups) {
             const имя =
                 g.name ||
                 (g.asn ? `AS${g.asn}` : g.legacy ? 'Оператор не сохранён' : 'Оператор не определён');
-            const счёт = `${g.nets.length} ${plural(g.nets.length, 'сеть', 'сети', 'сетей')}`;
+            // Облако узнаём по тому, что в группе одни одиночные адреса: у
+            // облачного оператора сети не берутся, только пойманные серверы.
+            const облако = !!g.asn && g.nets.length > 0 && g.nets.every((n) => /\/(32|128)$/.test(n));
+            const счёт = облако
+                ? `${g.nets.length} ${plural(g.nets.length, 'сервер', 'сервера', 'серверов')}`
+                : `${g.nets.length} ${plural(g.nets.length, 'сеть', 'сети', 'сетей')}`;
             // Про «развёрнуты из одного адреса» говорим только там, где это
             // правда: у безымянной группы оператора нет, есть сеть вокруг
             // самого адреса.
             // Три разных случая, и путать их нельзя: у старых списков
             // оператора не спрашивали вовсе, и говорить про сеть вокруг
             // адреса там неправда — это объявленные сети оператора.
-            const откуда = g.asn
+            const откуда = облако
+                ? ' · облако, взяты только пойманные серверы'
+                : g.asn
                 ? ' · развёрнуты из одного пойманного адреса'
                 : g.legacy
                   ? ' · из списка прежней версии'
@@ -2890,7 +2897,7 @@ function renderGameSkipped(skipped) {
     const хвост = skipped.length > 1 ? ` И ещё ${skipped.length - 1}.` : '';
     el.innerHTML =
         '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;color:var(--tx-6)"><path d="M5 12.5h7a2.5 2.5 0 0 0 .4-4.97A4 4 0 0 0 4.7 8.3 2.1 2.1 0 0 0 5 12.5z"></path></svg>' +
-        `<span class="game-skip-text">Пропущен адрес <span class="game-skip-addr">${esc(s.addr)}</span> — облако ${esc(кто)}, у него ${s.prefixes} ${plural(s.prefixes, 'сеть', 'сети', 'сетей')}. Не игра, в список не идёт.${хвост}</span>`;
+        `<span class="game-skip-text">Пропущен адрес <span class="game-skip-addr">${esc(s.addr)}</span> — облако ${esc(кто)}, у него ${s.prefixes} ${plural(s.prefixes, 'сеть', 'сети', 'сетей')}. Прежняя версия облачные адреса не брала — следующий сбор положит такой сервер поштучно.${хвост}</span>`;
 }
 
 async function loadGames() {
