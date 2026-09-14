@@ -449,6 +449,12 @@ pub fn apply_config(app: &AppHandle, name: &str) -> Result<(), String> {
 
 /// Рейтинг из свежайшего файла результатов тестов.
 pub fn latest_ranking(root: &std::path::Path) -> Vec<String> {
+    latest_ranking_scored(root).into_iter().map(|(c, _)| c).collect()
+}
+
+/// Тот же рейтинг вместе с долей ответивших целей — меню трея показывает её
+/// рядом с именем, как список конфигов в окне.
+pub fn latest_ranking_scored(root: &std::path::Path) -> Vec<(String, f64)> {
     // Свежайший — по времени изменения. Здесь ошибиться дороже всего:
     // по этому рейтингу самолечение выбирает, на что переключаться.
     let Some(path) = crate::tests::newest_result_file(root) else {
@@ -470,11 +476,13 @@ pub fn latest_ranking(root: &std::path::Path) -> Vec<String> {
     }
     rows.into_iter()
         .map(|r| {
-            if r.config.to_lowercase().ends_with(".bat") {
+            let score = r.score(dpi);
+            let config = if r.config.to_lowercase().ends_with(".bat") {
                 r.config
             } else {
                 format!("{}.bat", r.config)
-            }
+            };
+            (config, score)
         })
         .collect()
 }

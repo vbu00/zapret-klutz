@@ -36,6 +36,9 @@ const STATE_LABEL = {
 let state = null;
 let switchOpen = false;
 
+// Пороги те же, что у процентов в окне (verdictColor в renderer.js).
+const pctClass = (score) => (score >= 0.85 ? 'good' : score >= 0.4 ? '' : 'poor');
+
 function render() {
   const s = state;
   const targets = s.running && s.targets.length
@@ -48,7 +51,7 @@ function render() {
     ? `<button class="item ${switchOpen ? 'open' : ''}" data-act="switch-toggle">${ICONS.switch}<span>Переключить на</span>${CHEV}</button>` +
       (switchOpen
         ? `<div class="sub">${s.switchTo
-            .map((c) => `<button class="item" data-act="switch:${esc(c.file)}"><span>${esc(c.name)}</span></button>`)
+            .map((c) => `<button class="item" data-act="switch:${esc(c.file)}"><span>${esc(c.name)}</span><span class="pct ${pctClass(c.score)}" title="Доля проверенных целей, которые ответили в последнем прогоне">${Math.round(c.score * 100)}%</span></button>`)
             .join('')}</div>`
         : '')
     : '';
@@ -76,6 +79,12 @@ function render() {
     <div class="sep"></div>
     <div class="items">
       <button class="item danger" data-act="quit">${ICONS.quit}<span>Выйти из Klutz</span></button>
+    </div>
+    <div class="sep"></div>
+    <div class="vers">
+      <div><span>Klutz</span><b title="${esc(s.versions.app)}">${esc(s.versions.app)}</b></div>
+      <div><span>zapret</span><b title="${esc(s.versions.zapret || 'не загружен')}">${esc(s.versions.zapret || '—')}</b></div>
+      <div><span>TgWsProxy</span><b title="${esc(s.versions.tgws)}">${esc(s.versions.tgws)}</b></div>
     </div>`;
 }
 

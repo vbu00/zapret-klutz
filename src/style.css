@@ -1887,6 +1887,11 @@ html[data-theme="dark"] .menu { box-shadow: 0 16px 40px -12px rgba(0,0,0,.7); }
   gap: 14px;
 }
 .le-col label { display: block; font-size: 13px; color: var(--tx-4); margin-bottom: 6px; }
+/* Правило выше делало подпись тумблера блоком — тумблер вставал над текстом. */
+.le-col label.toggle-row { display: flex; margin-bottom: 0; }
+.tg-save-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tg-save-row .btn { flex: 0 0 auto; }
+#tgwsproxySettingsMsg:empty { display: none; }
 .srow-expand .area-msg { grid-column: 1 / -1; }
 
 .code-area {
@@ -2129,7 +2134,7 @@ html[data-theme="dark"] .tour-highlight { box-shadow: 0 0 0 9999px rgba(0,0,0,.7
 .tour-blocker { position: fixed; left: 0; right: 0; bottom: 0; top: 38px; pointer-events: auto; }
 .tour-callout {
   position: fixed;
-  width: 300px;
+  width: 340px;
   padding: 16px;
   border-radius: 12px;
   background: var(--raised);
@@ -2148,16 +2153,15 @@ html[data-theme="dark"] .tour-highlight { box-shadow: 0 0 0 9999px rgba(0,0,0,.7
 }
 .tour-callout h4 { margin: 0 0 8px; font-size: 15.5px; font-weight: 700; color: var(--tx); }
 .tour-callout p { margin: 0 0 14px; font-size: 14px; line-height: 1.55; color: var(--tx-2); }
-/* Три кнопки в 268 доступных пикселей не помещались, а flex по умолчанию не
-   ужимает элементы меньше их содержимого — вместо переноса они вылезали за
-   правый край выноски. Перенос на вторую строку вместо выхода за край;
-   space-between заменён на margin-left у навигации, иначе при переносе она
-   прижималась бы влево. */
+/* Три кнопки в одну строку. При ширине 300px они не помещались, «Назад» и
+   «Далее» переносились на вторую строку и выглядели съехавшими — выноска
+   шире, а перенос остаётся только на крайний случай (крупный шрифт). */
 .tour-callout-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  row-gap: 8px;
 }
 .tour-callout-actions .btn { white-space: nowrap; }
 .tour-nav { display: flex; gap: 6px; margin-left: auto; }

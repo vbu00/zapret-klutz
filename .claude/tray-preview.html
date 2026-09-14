@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Tray preview</title>
+<!-- Превью меню трея без Tauri: заглушка __TAURI__, затем настоящая
+     страница src/tray-menu.html. Только для проверки вёрстки. -->
+<script>
+  const params = new URLSearchParams(location.search);
+  const MOCK_STATE = {
+    running: true,
+    state: 'ok',
+    active: 'Z2K general (ALT11) sniext1',
+    targets: [
+      { name: 'Discord Main', ok: true, ms: 197 },
+      { name: 'Discord Gateway', ok: true, ms: 265 },
+      { name: 'Discord CDN', ok: true, ms: 178 },
+      { name: 'Discord Updates', ok: true, ms: 187 },
+      { name: 'YouTube Web', ok: true, ms: 271 },
+      { name: 'YouTube Video', ok: true, ms: 115 },
+      { name: 'YouTube Short', ok: false, ms: 0 },
+    ],
+    switchTo: [
+      { file: 'general (ALT9).bat', name: 'ALT9', score: 1 },
+      { file: 'general (ALT12).bat', name: 'ALT12', score: 0.857 },
+      { file: 'general (SIMPLE FAKE ALT2 с очень длинным именем).bat', name: 'SIMPLE FAKE ALT2 с очень длинным именем', score: 0.571 },
+      { file: 'general (FAKE TLS AUTO).bat', name: 'FAKE TLS AUTO', score: 0.286 },
+    ],
+    tgRunning: false,
+    versions: { app: '1.4.0-beta.2', zapret: params.has('nozapret') ? null : '1.10.2', tgws: '1.10.2' },
+  };
+  window.__TAURI__ = {
+    core: { invoke: async (cmd) => (cmd === 'tray_menu_state' ? MOCK_STATE : null) },
+    event: { listen: async () => () => {} },
+  };
+  if (params.get('theme') === 'dark') localStorage.setItem('zapretTheme', 'dark');
+  else localStorage.removeItem('zapretTheme');
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', '/src/tray-menu.html', false);
+  xhr.send();
+  const html = xhr.responseText.replace('<head>', '<head><base href="/src/">');
+  document.open();
+  document.write(html);
+  document.close();
+</script>

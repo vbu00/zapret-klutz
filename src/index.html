@@ -846,16 +846,14 @@
               <label>Датацентры Telegram — по одному DC:IP на строку</label>
               <textarea id="tgwsproxyDcArea" class="code-area sm" spellcheck="false"></textarea>
             </div>
-            <div class="le-col" style="grid-column: 1 / -1">
+            <div class="le-col tg-save-row" style="grid-column: 1 / -1">
               <label class="toggle-row">
                 <span class="toggle" id="tgwsproxyCfToggle"><span class="knob"></span></span>
                 <span class="tr-text">Резервный путь через Cloudflare, если прямой WebSocket заблокирован</span>
               </label>
-            </div>
-            <div style="grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; justify-content: space-between">
-              <p id="tgwsproxySettingsMsg" class="area-msg" style="margin: 0"></p>
               <button class="btn primary xs" id="tgwsproxySaveBtn">Сохранить</button>
             </div>
+            <p id="tgwsproxySettingsMsg" class="area-msg" style="margin: 0"></p>
           </div>
 
           <pre id="tgwsproxyLog" class="log hidden"></pre>

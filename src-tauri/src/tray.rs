@@ -111,8 +111,10 @@ struct Snapshot {
     /// Была ли вообще хоть одна проверка связи для текущего запуска.
     checked: bool,
     targets: Vec<(String, bool, u64)>,
-    switch_to: Vec<String>,
+    /// Конфиг и его доля ответивших целей в последнем прогоне.
+    switch_to: Vec<(String, f64)>,
     tg_running: bool,
+    root: Option<String>,
 }
 
 /// «general (FAKE TLS AUTO).bat» → «FAKE TLS AUTO», «general.bat» →
@@ -158,9 +160,9 @@ fn snapshot(app: &AppHandle) -> Snapshot {
     let switch_to = match &root {
         Some(r) => {
             let root = std::path::Path::new(r);
-            crate::monitor::latest_ranking(root)
+            crate::monitor::latest_ranking_scored(root)
                 .into_iter()
-                .filter(|c| Some(c) != active.as_ref() && root.join(c).exists())
+                .filter(|(c, _)| Some(c) != active.as_ref() && root.join(c).exists())
                 .take(5)
                 .collect()
         }
@@ -169,7 +171,7 @@ fn snapshot(app: &AppHandle) -> Snapshot {
 
     let tg_running = st.tgws_pid.lock().unwrap().is_some();
 
-    Snapshot { running, active, state, checked, targets, switch_to, tg_running }
+    Snapshot { running, active, state, checked, targets, switch_to, tg_running, root }
 }
 
 fn tooltip(s: &Snapshot) -> String {
@@ -202,6 +204,15 @@ pub struct TargetRow {
 pub struct SwitchRow {
     file: String,
     name: String,
+    /// Доля ответивших целей, 0..1 — та же, что в процентах в окне.
+    score: f64,
+}
+
+#[derive(Serialize)]
+pub struct TrayVersions {
+    app: String,
+    zapret: Option<String>,
+    tgws: &'static str,
 }
 
 #[derive(Serialize)]
@@ -214,6 +225,7 @@ pub struct TrayMenuState {
     switch_to: Vec<SwitchRow>,
     #[serde(rename = "tgRunning")]
     tg_running: bool,
+    versions: TrayVersions,
 }
 
 /// Прямоугольник иконки трея в физических пикселях (x, y, w, h) — от него
@@ -276,13 +288,21 @@ pub fn hide_popup(app: &AppHandle) {
 #[tauri::command]
 pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     let s = snapshot(&app);
+    // Версию zapret читаем только при открытии меню, а не в snapshot: тот
+    // зовётся на каждое обновление иконки.
+    let zapret = s.root.as_deref().and_then(|r| crate::maintenance::local_version(std::path::Path::new(r)));
     TrayMenuState {
         running: s.running,
         state: s.state.key(),
         active: s.active.as_deref().map(pretty),
         targets: s.targets.into_iter().map(|(name, ok, ms)| TargetRow { name, ok, ms }).collect(),
-        switch_to: s.switch_to.iter().map(|f| SwitchRow { file: f.clone(), name: pretty(f) }).collect(),
+        switch_to: s
+            .switch_to
+            .iter()
+            .map(|(f, score)| SwitchRow { file: f.clone(), name: pretty(f), score: *score })
+            .collect(),
         tg_running: s.tg_running,
+        versions: TrayVersions { app: app.package_info().version.to_string(), zapret, tgws: crate::tgws::BUNDLED_VERSION },
     }
 }
 
