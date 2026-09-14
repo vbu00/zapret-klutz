@@ -2042,8 +2042,21 @@ function regressionCard(reg) {
   const строка = (left, right) =>
     `<div class="snap-row"><div class="snap-left"><span class="snap-best">${left}</span></div>` +
     `<div class="snap-right"><span class="snap-stat">${right}</span></div></div>`;
+  // Под каждым просевшим конфигом — что в нём поменялось между релизами, и
+  // ссылка положить прежний вариант рядом: тогда тесты покажут, в
+  // изменениях ли дело.
+  const diffs = reg.diffs || {};
   const drops = (reg.drops || [])
-    .map((d) => строка(esc(displayName(d.name)), `было ${d.prevOk} → стало ${d.curOk} из ${d.total}`))
+    .map((d) => {
+      const что = (diffs[d.name] || [])
+        .slice(0, 6)
+        .map((c) => `<div class="snap-row diff-row"><span class="snap-stat">${esc(c.profile)}: ${esc(c.text)}</span></div>`)
+        .join('');
+      const проверить = reg.rollbackPath
+        ? ` <span class="cf-link" data-import="${esc(d.name)}">Проверить прежний вариант</span>`
+        : '';
+      return строка(esc(displayName(d.name)), `было ${d.prevOk} → стало ${d.curOk} из ${d.total}${проверить}`) + что;
+    })
     .join('');
   const action = reg.rollbackPath
     ? `<button class="btn sm" id="regressRollbackBtn">Вернуть ${esc(prev)}</button>`
@@ -2140,6 +2153,21 @@ async function loadTestsHistory() {
       loadTestsHistory();
     };
   }
+
+  box.querySelectorAll('[data-import]').forEach((el) => {
+    el.style.cursor = 'pointer';
+    el.onclick = async () => {
+      try {
+        const name = await window.zapret.importOldConfig(reg.rollbackPath, el.dataset.import);
+        showToast(`Добавлен ${displayName(name)}`, 'success', {
+          body: 'Это прежний вариант конфига на нынешнем winws. Прогони тесты — станет видно, в изменениях ли дело.',
+        });
+        refreshState();
+      } catch (e) {
+        showToast(typeof e === 'string' ? e : 'Не удалось добавить прежний вариант', 'error');
+      }
+    };
+  });
 }
 
 // ─────────── Обзор (чипы главной) ───────────

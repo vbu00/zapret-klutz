@@ -50,9 +50,11 @@ fn game_filter_values(root: &Path) -> GameFilterValues {
     }
 }
 
-static LINE_CONTINUATION: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]*\^\r?\n[ \t]*").unwrap());
-static EXE_MARKER: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?i)winws\.exe""#).unwrap());
-static TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?:[^\s"]+|"[^"]*")+"#).unwrap());
+// pub(crate): тем же разбором сравниваются конфиги двух релизов (configdiff) —
+// свой разбор там разошёлся бы с тем, как .bat на самом деле запускается.
+pub(crate) static LINE_CONTINUATION: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]*\^\r?\n[ \t]*").unwrap());
+pub(crate) static EXE_MARKER: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?i)winws\.exe""#).unwrap());
+pub(crate) static TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?:[^\s"]+|"[^"]*")+"#).unwrap());
 
 /// Port of `extractWinwsArgs()` — reads a general*.bat and pulls out the
 /// literal argv winws.exe gets launched with, so we can spawn it directly

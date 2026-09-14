@@ -10,6 +10,7 @@ mod autostart;
 mod autotest;
 mod carry;
 mod commands;
+mod configdiff;
 mod diag;
 mod discorddiag;
 mod favicon;
@@ -155,6 +156,7 @@ pub fn run() {
             commands::open_release_folder,
             commands::get_test_history,
             commands::get_release_regression,
+            commands::import_old_config,
             commands::open_result_file,
             commands::update_ipset_list,
             commands::update_hosts_file,

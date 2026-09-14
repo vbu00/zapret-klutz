@@ -158,6 +158,8 @@
     setDiscordQuic: (enabled) => invoke('set_discord_quic', { enabled }),
     diagnoseDiscord: () => invoke('diagnose_discord'),
     getSystemProxy: () => invoke('get_system_proxy'),
+    // Отказ приходит отказом промиса со строкой ошибки, успех — именем конфига.
+    importOldConfig: (oldRoot, config) => invoke('import_old_config', { oldRoot, config }),
     openExternalUrl: (url) => invoke('open_external_url', { url }),
     openReleaseFolder: () => invoke('open_release_folder'),
     getVersions: () => invoke('get_versions'),

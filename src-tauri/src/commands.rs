@@ -150,6 +150,9 @@ pub struct Regression {
     /// Куда вернуться. `None` — папки прежнего релиза больше нет.
     #[serde(rename = "rollbackPath")]
     rollback_path: Option<String>,
+    /// Что поменялось в каждом просевшем конфиге. Пусто, если сравнить не с
+    /// чем — прежнего релиза на диске нет.
+    diffs: std::collections::BTreeMap<String, Vec<crate::configdiff::Change>>,
 }
 
 /// Стало ли на текущем релизе хуже, чем на прежнем, по последним прогонам.
@@ -195,7 +198,44 @@ pub fn get_release_regression(app: AppHandle, state: State<AppState>) -> Option<
             let r = crate::releases::release_root(&dir);
             годен(&r).then(|| r.to_string_lossy().into_owned())
         });
-    Some(Regression { current: label, previous: prev.release.clone(), cmp, rollback_path })
+    // Что поменялось в просевших конфигах — если прежний релиз ещё на диске.
+    let diffs = rollback_path
+        .as_deref()
+        .map(|old| {
+            cmp.drops
+                .iter()
+                .filter_map(|d| {
+                    let old_bat = std::fs::read_to_string(Path::new(old).join(&d.name)).ok()?;
+                    let new_bat = std::fs::read_to_string(root.join(&d.name)).ok()?;
+                    Some((d.name.clone(), crate::configdiff::diff(&old_bat, &new_bat)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(Regression { current: label, previous: prev.release.clone(), cmp, rollback_path, diffs })
+}
+
+/// Кладёт конфиг прежнего релиза в текущий под именем «Было …», чтобы
+/// прогнать его тестами на нынешнем winws. Возвращает имя конфига.
+#[tauri::command(async)]
+pub fn import_old_config(
+    app: AppHandle,
+    state: State<AppState>,
+    old_root: String,
+    config: String,
+) -> Result<String, String> {
+    let root = root_of(&state).ok_or("Сначала загрузи релиз zapret.")?;
+    let old = PathBuf::from(&old_root);
+    // Путь приходит из интерфейса. Брать конфиги разрешено только из прежнего
+    // релиза: запомненного при переключении или скачанного самим Klutz.
+    let prev = state.persisted.lock().unwrap().previous_root.clone();
+    let разрешён = prev.as_deref().map(Path::new) == Some(old.as_path())
+        || old.starts_with(crate::releases::releases_dir(&app));
+    if !разрешён || !old.join("bin").join("winws.exe").exists() || old == root {
+        return Err("Это не прежний релиз.".into());
+    }
+    checked_config(&old, &config)?;
+    crate::configdiff::import_old(&old, &root, &config)
 }
 
 /// Загрузка релиза из папки. Для .zip есть отдельная команда

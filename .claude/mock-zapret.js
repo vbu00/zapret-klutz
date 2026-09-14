@@ -323,7 +323,14 @@
       prevTotal: 36,
       drops: [{ name: 'general (ALT11).bat', prevOk: 36, curOk: 12, total: 36 }],
       rollbackPath: 'C:\\Users\\vbu00\\Desktop\\zapret-discord-youtube-1.9.9c',
+      diffs: {
+        'general (ALT11).bat': [
+          { profile: 'TCP 80,443', text: '--dpi-desync-fake-tls: stun.bin → stun2.bin' },
+          { profile: 'игровые порты', text: '+ --dpi-desync-fake-unknown=stun2.bin' },
+        ],
+      },
     }),
+    importOldConfig: async () => 'general (Было 1.9.9c general (ALT11)).bat',
     openExternalUrl: noop,
     openReleaseFolder: noop,
 

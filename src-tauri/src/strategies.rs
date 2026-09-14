@@ -120,8 +120,12 @@ fn variant_name(template: &str, suffix: &str) -> String {
     format!("{MARK}{base} {suffix}).bat")
 }
 
+/// Префикс прежнего варианта конфига, взятого из предыдущего релиза для
+/// проверки (configdiff). Живёт и убирается как дополнительная стратегия.
+pub const OLD_MARK: &str = "general (Было ";
+
 pub fn is_variant(name: &str) -> bool {
-    name.starts_with(MARK) && name.to_lowercase().ends_with(".bat")
+    (name.starts_with(MARK) || name.starts_with(OLD_MARK)) && name.to_lowercase().ends_with(".bat")
 }
 
 /// Из какого конфига сделан вариант: `general (Z2K general (ALT11) sld1).bat`
