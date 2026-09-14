@@ -296,6 +296,15 @@
     getDiscordQuic: async () => ({ enabled: false, installed: true }),
     setDiscordQuic: noop,
     getSystemProxy: async () => ({ server: 'http://127.0.0.1:12334', owner: 'Hiddify.exe' }),
+    getWhatsNew: async () => [
+      {
+        version: 'Не выпущено',
+        items: [
+          { title: 'Сбор адресов игры не находил ничего.', text: 'Сбор адресов игры не находил ничего. Кнопок было две, и обе упирались в то, что должен был сделать человек.' },
+          { title: '«Discord без QUIC» в «Сеть и фильтры».', text: '«Discord без QUIC» в «Сеть и фильтры». Переключатель ставит правило брандмауэра Windows.' },
+        ],
+      },
+    ],
     diagnoseDiscord: async () => ({
       verdict: 'Сеть в порядке, а Discord зависает',
       advice: 'Всё, что Discord качает по обычному HTTPS, через обход проходит, — а сам он висит. Похоже на QUIC: приложение Discord ходит по нему, а тесты его не проверяют. Включи «Discord без QUIC» и перезапусти Discord полностью.',

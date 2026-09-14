@@ -2215,6 +2215,13 @@ pub fn set_discord_quic(enabled: bool) -> SimpleResult {
     }
 }
 
+/// «Что нового» с версии `since` по текущую. `since` — версия, с которой
+/// Klutz открывали в прошлый раз; `null` — неизвестна.
+#[tauri::command(async)]
+pub fn get_whats_new(app: AppHandle, since: Option<String>) -> Vec<crate::whatsnew::Section> {
+    crate::whatsnew::whats_new(&app.package_info().version.to_string(), since.as_deref())
+}
+
 /// Системный прокси Windows. `null` — выключен.
 ///
 /// Тесты идут напрямую, а приложения вроде Discord — через системный прокси.

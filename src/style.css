@@ -2089,6 +2089,14 @@ html[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,.62); }
 .modal-card p { margin: 0 0 18px; font-size: 14.5px; line-height: 1.6; color: var(--tx-2); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .modal-card.wide { width: 440px; }
+.whats-new-list { max-height: 55vh; overflow-y: auto; margin: 0 0 18px; }
+.whats-new-list h4 { margin: 14px 0 4px; font-size: 13px; font-weight: 600; color: var(--tx-5); }
+.whats-new-list h4:first-child { margin-top: 0; }
+.whats-new-list details { padding: 9px 0; border-top: 1px solid var(--line-row); }
+.whats-new-list details:first-child,
+.whats-new-list h4 + details { border-top: 0; }
+.whats-new-list summary { cursor: pointer; font-size: 14.5px; line-height: 1.5; color: var(--tx-2); }
+.modal-card .whats-new-list details p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--tx-4); }
 .modal-card h3 { margin: 0 0 14px; font-size: 17px; font-weight: 700; color: var(--tx); }
 .wizard-choice-actions { display: flex; flex-direction: column; gap: 8px; }
 .wizard-choice-actions .btn { width: 100%; text-align: center; }

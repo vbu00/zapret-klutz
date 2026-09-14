@@ -34,6 +34,7 @@ mod tlsprobe;
 mod toggles;
 mod tray;
 mod udpprobe;
+mod whatsnew;
 mod winws;
 
 use state::AppState;
@@ -166,6 +167,7 @@ pub fn run() {
             commands::set_discord_quic,
             commands::diagnose_discord,
             commands::get_system_proxy,
+            commands::get_whats_new,
             commands::get_custom_lists,
             commands::save_custom_lists,
             commands::export_settings,

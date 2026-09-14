@@ -838,6 +838,46 @@ $('aboutUpdateBtn').onclick = async () => {
 // Раз в сутки при запуске Klutz сам смотрит, не вышла ли новая версия.
 // Чаще незачем, да и GitHub ограничивает анонимные запросы. Найденную
 // версию запоминаем, чтобы точка на «О программе» не пропадала до обновления.
+// ─────────── Что нового ───────────
+//
+// Самообновления нет — новая версия ставится поверх, — и о том, что в ней
+// изменилось, человек узнавал разве что случайно. Запоминаем версию, с
+// которой Klutz открывали в прошлый раз; сменилась — показываем окно один раз.
+const LAST_RUN_VERSION_KEY = 'klutzLastRunVersion';
+
+async function maybeShowWhatsNew(onboardingDone) {
+  const v = await window.zapret.getVersions();
+  let last = null;
+  try {
+    last = localStorage.getItem(LAST_RUN_VERSION_KEY);
+    localStorage.setItem(LAST_RUN_VERSION_KEY, v.app);
+  } catch {}
+  if (last === v.app) return;
+  // Самая первая установка: рассказывать «что нового» не о чем. А вот если
+  // Klutz уже настроен, но версия не записана — это обновление с версии, где
+  // этого окна ещё не было.
+  if (!last && !onboardingDone) return;
+  let sections = [];
+  try {
+    sections = await window.zapret.getWhatsNew(last);
+  } catch {
+    return;
+  }
+  if (!sections.length) return;
+  $('whatsNewTitle').textContent = `Klutz обновился до ${v.app}`;
+  $('whatsNewList').innerHTML = sections
+    .map(
+      (s) =>
+        (sections.length > 1 ? `<h4>${esc(s.version === 'Не выпущено' ? v.app : s.version)}</h4>` : '') +
+        s.items.map((i) => `<details><summary>${esc(i.title)}</summary><p>${esc(i.text)}</p></details>`).join('')
+    )
+    .join('');
+  $('whatsNewOverlay').classList.remove('hidden');
+}
+
+$('whatsNewOkBtn').onclick = () => $('whatsNewOverlay').classList.add('hidden');
+$('whatsNewChangelogBtn').onclick = () => window.zapret.openExternalUrl(`${KLUTZ_REPO_URL}/blob/main/CHANGELOG.md`);
+
 const KLUTZ_CHECKED_KEY = 'klutzUpdateCheckedAt';
 const KLUTZ_SEEN_KEY = 'klutzLatestSeen';
 
@@ -4124,6 +4164,8 @@ loadOverview();
   // Команда отдаёт голый bool, а не { done } — иначе мастер показывался бы
   // при каждом запуске, потому что у булева нет свойства done.
   const onboardingDone = await window.zapret.getOnboardingDone();
+  // Не ждём: окно «Что нового» не должно задерживать остальную загрузку.
+  maybeShowWhatsNew(onboardingDone);
 
   if (currentState.rootPath) {
     await afterReleaseLoaded();
