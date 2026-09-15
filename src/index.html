@@ -649,6 +649,21 @@
         </div>
 
         <div class="sec-row">
+          <div class="sec-title">Сеть</div>
+          <div class="sec-actions">
+            <button class="btn ghost sm" id="reconBtn">Как у меня режут</button>
+          </div>
+        </div>
+
+        <div class="card hidden" id="reconCard">
+          <div class="card-head">
+            <div class="ch-left"><span class="ch-title" id="reconVerdict"></span></div>
+          </div>
+          <p class="game-note" id="reconAdvice"></p>
+          <div id="reconRows"></div>
+        </div>
+
+        <div class="sec-row">
           <div class="sec-title">Discord</div>
           <div class="sec-actions">
             <button class="btn ghost sm" id="discordDiagBtn">Почему не запускается</button>
@@ -1157,6 +1172,10 @@
             <button class="maint-tile" id="discordDiagTileBtn">
               <span class="mt-title">Почему Discord не запускается</span>
               <span class="mt-desc">Логи Discord, прокси, обход и сеть — и что с этим делать.</span>
+            </button>
+            <button class="maint-tile" id="reconTileBtn">
+              <span class="mt-title">Как у меня режут</span>
+              <span class="mt-desc">Без обхода: DNS, адрес, имя или объём — и поможет ли zapret.</span>
             </button>
             <button class="maint-tile" id="checkUpdatesBtn">
               <span class="mt-title">Проверить обновления Zapret</span>

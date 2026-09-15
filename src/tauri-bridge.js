@@ -158,6 +158,8 @@
     setDiscordQuic: (enabled) => invoke('set_discord_quic', { enabled }),
     diagnoseDiscord: () => invoke('diagnose_discord'),
     getSystemProxy: () => invoke('get_system_proxy'),
+    checkVpn: () => invoke('check_vpn'),
+    reconNetwork: () => invoke('recon_network'),
     getWhatsNew: (since) => invoke('get_whats_new', { since: since || null }),
     trialLatestRelease: () => invoke('trial_latest_release'),
     developerReport: () => invoke('developer_report'),

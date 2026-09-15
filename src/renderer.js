@@ -1995,14 +1995,15 @@ async function runAllTests(opts = {}) {
     return;
   }
   if (!(await ensureNoForeignService())) return;
-  // Прогон идёт напрямую, а Discord и браузеры — через системный прокси.
-  // Сказать до того, как человек поверит зелёным результатам.
+  // Через VPN тесты меряют его сеть, а через системный прокси Discord и
+  // браузеры ходят мимо того, что тесты проверяют. Сказать до того, как
+  // человек поверит зелёным результатам.
   window.zapret
-    .getSystemProxy()
-    .then((p) => {
-      if (p) {
-        showToast(`Включён прокси ${p.owner || p.server}`, 'warn', {
-          body: 'Тесты идут напрямую, а Discord и браузеры — через прокси. Результаты тестов к ним не относятся.',
+    .checkVpn()
+    .then((v) => {
+      if (v && v.blocked) {
+        showToast('Похоже, сеть идёт через VPN или прокси', 'warn', {
+          body: `${v.reasons.join('; ')}. Результаты тестов сейчас не о твоей сети или не о том, как ходит Discord.`,
         });
       }
     })
@@ -3657,6 +3658,96 @@ $('discordDiagBtn').onclick = runDiscordDiag;
 $('discordDiagTileBtn').onclick = () => {
   switchPage('diagnostics');
   runDiscordDiag();
+};
+
+// ─────────── «Как у меня режут» ───────────
+
+function reconSay(verdict, advice) {
+  $('reconVerdict').textContent = verdict;
+  const lines = (Array.isArray(advice) ? advice : [advice]).filter(Boolean);
+  $('reconAdvice').innerHTML = lines.map(esc).join('<br>');
+  $('reconAdvice').classList.toggle('hidden', !lines.length);
+}
+
+function reconRow(ok, label, detail) {
+  const cls = ok === true ? ' ok' : ok === false ? ' bad' : '';
+  const icon = ok === true ? '✓' : ok === false ? '✗' : '·';
+  const note = ok === false ? 'dr-warn' : 'dr-note';
+  return `<div class="diag-row${cls}"><span class="dr-icon">${icon}</span><span>${esc(label)}</span><span class="${note}">${esc(detail)}</span></div>`;
+}
+
+function renderRecon(r) {
+  let rows = [];
+  if (r.status === 'vpn') {
+    reconSay('Сначала выключи VPN или прокси', r.message);
+    rows = r.vpn.reasons.map((x) => reconRow(false, 'Мешает замеру', x));
+  } else if (r.status !== 'ok') {
+    reconSay('Сейчас не получится', r.message);
+  } else {
+    reconSay(r.verdict, r.advice);
+    rows = r.targets.map((t) =>
+      reconRow(t.kind === 'clear' ? true : t.kind === 'unknown' ? null : false, `${t.name} — ${t.label}`, t.detail)
+    );
+    if (r.udp) {
+      const ok = r.udp.verdict === 'ok' ? true : r.udp.verdict === 'blocked' ? false : null;
+      rows.push(reconRow(ok, 'UDP наружу (голос, QUIC)', r.udp.note));
+    }
+  }
+  rows.push(...(r.vpn?.notes || []).map((n) => reconRow(null, 'Заметка', n)));
+  $('reconRows').innerHTML = rows.join('');
+}
+
+async function runRecon() {
+  const btn = $('reconBtn');
+  btn.disabled = true;
+  $('reconCard').classList.remove('hidden');
+  reconSay('Проверяю — до минуты…', 'Без обхода смотрю, как сеть обращается с Discord и YouTube.');
+  $('reconRows').innerHTML = '';
+  // Какой конфиг включить обратно, если ради разведки обход остановили.
+  let restart = null;
+  try {
+    let r = await window.zapret.reconNetwork();
+    if (r.status === 'bypass_running') {
+      if (currentState.installedAsService || currentState.serviceExists) {
+        reconSay(
+          'Обход работает службой Windows',
+          'Разведка идёт без обхода. Сними службу в «Настройках» и повтори — сам Klutz её ради проверки не трогает.'
+        );
+        return;
+      }
+      const ok = await showConfirm('Разведка идёт без обхода. Остановить его на минуту и потом включить обратно?');
+      if (!ok) {
+        reconSay('Разведка отменена', '');
+        return;
+      }
+      const prev = currentState.activeConfig;
+      const stop = await window.zapret.stopConfig();
+      if (stop && !stop.ok) {
+        reconSay('Не удалось остановить обход', stop.error || '');
+        refreshState();
+        return;
+      }
+      restart = prev;
+      reconSay('Проверяю — до минуты…', 'Обход на время остановлен и включится сам.');
+      r = await window.zapret.reconNetwork();
+    }
+    renderRecon(r);
+  } catch {
+    reconSay('Проверка не удалась', '');
+  } finally {
+    btn.disabled = false;
+    if (restart) {
+      if (await applyConfig(restart, false, true)) showToast('Обход включён обратно', 'success');
+    } else {
+      refreshState();
+    }
+  }
+}
+
+$('reconBtn').onclick = runRecon;
+$('reconTileBtn').onclick = () => {
+  switchPage('diagnostics');
+  runRecon();
 };
 
 // ─────────── Смена релиза ───────────

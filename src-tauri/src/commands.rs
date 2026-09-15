@@ -1888,6 +1888,35 @@ pub fn check_bypass_chance(state: State<AppState>) -> BypassChance {
     bypass_chance(&state)
 }
 
+// ─────────── Как у меня режут ───────────
+
+/// Не идёт ли сеть через VPN или прокси — перед тестами и разведкой.
+#[tauri::command(async)]
+pub fn check_vpn() -> crate::vpncheck::VpnCheck {
+    crate::vpncheck::check()
+}
+
+#[tauri::command(async)]
+pub fn recon_network(state: State<AppState>) -> crate::recon::Recon {
+    use crate::recon::Recon;
+    let vpn = crate::vpncheck::check();
+    if vpn.blocked {
+        let message = crate::vpncheck::message(&vpn);
+        return Recon::stopped("vpn", message, vpn);
+    }
+    // Меряем сеть как есть. Остановить обход решает человек — окно
+    // спрашивает и потом включает его обратно.
+    if winws::is_winws_running() {
+        return Recon::stopped("bypass_running", "Разведка идёт без обхода, а он сейчас работает.".into(), vpn);
+    }
+    // Тот же замок, что у тестов: самолечение и автопрогон на это время
+    // молчат и не поднимают обход посреди замера.
+    let Some(_run) = crate::state::TestRun::acquire(&state) else {
+        return Recon::stopped("busy", "Сейчас идут тесты или сбор адресов игры — дождись окончания.".into(), vpn);
+    };
+    crate::recon::run(vpn)
+}
+
 // ─────────── Сканирование трафика игры ───────────
 
 #[derive(Debug, Serialize)]

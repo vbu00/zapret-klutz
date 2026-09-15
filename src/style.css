@@ -1988,7 +1988,13 @@ html[data-theme="dark"] .menu { box-shadow: 0 16px 40px -12px rgba(0,0,0,.7); }
 .diag-row .dr-warn { margin-left: auto; font-size: 13px; color: var(--amber); }
 .diag-row .dr-note { margin-left: auto; font-size: 13px; color: var(--tx-4); text-align: right; }
 #discordDiagAdvice,
+#reconAdvice,
 .card > .card-note { padding: 0 20px 14px; }
+/* У разведки пояснения длинные: подпись цели держим в одну строку, а
+   переносится пояснение справа — иначе они налезали друг на друга. */
+#reconRows .diag-row > span:nth-child(2) { flex: 0 0 auto; white-space: nowrap; }
+#reconRows .diag-row .dr-note,
+#reconRows .diag-row .dr-warn { flex: 1 1 auto; min-width: 0; text-align: right; }
 .diag-row .diag-fix-btn { margin-left: auto; flex: 0 0 auto; }
 
 /* ─────────── Лог / пустое ─────────── */

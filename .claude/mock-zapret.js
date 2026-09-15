@@ -296,6 +296,30 @@
     getDiscordQuic: async () => ({ enabled: false, installed: true }),
     setDiscordQuic: noop,
     getSystemProxy: async () => ({ server: 'http://127.0.0.1:12334', owner: 'Hiddify.exe' }),
+    checkVpn: async () => ({ blocked: false, reasons: [], notes: [] }),
+    reconNetwork: async () => {
+      await new Promise((r) => setTimeout(r, 400));
+      return {
+        status: 'ok',
+        vpn: { blocked: false, reasons: [], notes: ['есть Tailscale, но интернет идёт не через него — замерам не мешает'] },
+        message: '',
+        verdict: 'Discord — режут по имени; YouTube — частично: обрыв по объёму',
+        advice: [
+          'Режут по имени сайта, и разрезанный запрос проходит — ровно то, что лечит zapret. Подбор стратегии под этот ПК здесь имеет смысл.',
+          'Соединение пускают, но обрывают после первых килобайт. Такое обходится хуже всего, и короткие тесты его не видят: стратегию надо проверять на объёме.',
+        ],
+        targets: [
+          { name: 'Discord Main', host: 'discord.com', kind: 'sni', label: 'режут по имени', split: 'helps', detail: 'с нейтральным именем example.com тот же адрес отвечает — режут по имени; целый ClientHello режут, а разрезанный по сегментам проходит' },
+          { name: 'Discord Gateway', host: 'gateway.discord.gg', kind: 'sni', label: 'режут по имени', split: 'helps', detail: 'режут по имени; разрезанный проходит' },
+          { name: 'Discord CDN', host: 'cdn.discordapp.com', kind: 'clear', label: 'не режут', detail: 'открывается без обхода' },
+          { name: 'Discord Updates', host: 'updates.discord.com', kind: 'clear', label: 'не режут', detail: 'открывается без обхода' },
+          { name: 'YouTube Web', host: 'www.youtube.com', kind: 'cutoff', label: 'обрыв по объёму', detail: 'сервер ответил, отдал 16 КБ и замолчал' },
+          { name: 'YouTube Video', host: 'redirector.googlevideo.com', kind: 'clear', label: 'не режут', detail: 'открывается без обхода' },
+          { name: 'YouTube Short', host: 'youtu.be', kind: 'unknown', label: 'не проверено', detail: 'проверить не удалось' },
+        ],
+        udp: { verdict: 'ok', note: 'STUN ответил — UDP наружу ходит', answered: 2, asked: 3, ms: 41 },
+      };
+    },
     developerReport: async () => '— Klutz —\nKlutz: 1.4.0-beta.2\nРелиз zapret: zapret-discord-youtube-1.10.2 (версия 1.10.2)\n\n— Обход —\nСтратегия: general (ALT12)',
     saveReport: noop,
     getKlutzRelease: async () => ({

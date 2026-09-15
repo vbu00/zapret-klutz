@@ -22,6 +22,7 @@ mod monitor;
 mod notify;
 mod probe;
 mod quic;
+mod recon;
 mod release;
 mod releases;
 mod report;
@@ -36,6 +37,7 @@ mod tlsprobe;
 mod toggles;
 mod tray;
 mod udpprobe;
+mod vpncheck;
 mod whatsnew;
 mod winws;
 
@@ -169,6 +171,8 @@ pub fn run() {
             commands::set_discord_quic,
             commands::diagnose_discord,
             commands::get_system_proxy,
+            commands::check_vpn,
+            commands::recon_network,
             commands::get_whats_new,
             commands::trial_latest_release,
             commands::developer_report,
