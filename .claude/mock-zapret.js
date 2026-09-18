@@ -302,6 +302,7 @@
     setDiscordQuic: noop,
     getSystemProxy: async () => ({ server: 'http://127.0.0.1:12334', owner: 'Hiddify.exe' }),
     checkVpn: async () => ({ blocked: false, reasons: [], notes: [] }),
+    getBestConfig: async () => 'general (ALT).bat',
     listsOverview: async () => ({
       ipsetMode: 'loaded',
       gameNets: 36,

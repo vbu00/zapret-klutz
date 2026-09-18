@@ -653,8 +653,7 @@ async function applyConfig(name, asService, silent) {
 $('heroStartBtn').onclick = async (e) => {
   const btn = e.currentTarget;
   btn.disabled = true;
-  const res = await callSafe(window.zapret.getLastTestResults());
-  const best = res.ok ? findConfig(parseResults(res.text).best) : null;
+  const best = await refreshBest();
   if (best) {
     const applied = await applyConfig(best, false, true);
     btn.disabled = false;
@@ -682,15 +681,19 @@ $('heroAltBtn').onclick = () => {
 
 // Одна кнопка на все случаи: работает — остановить, есть рабочий вариант —
 // включить его сразу, нет — подобрать. Во время подбора клик игнорируется.
-$('simpleCircle').onclick = () => {
+$('simpleCircle').onclick = async () => {
   if (testing || launching) return;
-  if (currentState.running) stopActive();
-  else if (findConfig(lastTestBest)) applyBestFromSimple();
+  if (currentState.running) {
+    stopActive();
+    return;
+  }
+  // Тот же выбор, что у «Включить» в продвинутом режиме, — см. refreshBest.
+  const best = await refreshBest();
+  if (best) applyBestFromSimple(best);
   else runAllTests({ autoApply: true });
 };
 
-async function applyBestFromSimple() {
-  const name = findConfig(lastTestBest);
+async function applyBestFromSimple(name) {
   launching = true;
   renderHero();
   setTimeout(() => {
@@ -2418,12 +2421,24 @@ async function loadOverview() {
   if (testHistory.ok && testHistory.runs.length) {
     const last = testHistory.runs[testHistory.runs.length - 1];
     $('statLastRun').textContent = `${last.date} · ${bestOf(last)}`;
-    lastTestBest = last.best || null;
   } else {
     $('statLastRun').textContent = 'ещё не запускались';
-    lastTestBest = null;
   }
+  await refreshBest();
   $('heroRedoBtn').classList.toggle('hidden', !lastTestBest);
+  renderHero();
+}
+
+// Лучший конфиг — один источник на всё окно: тот же рейтинг, что у трея и
+// самолечения (свежий прогон текущего релиза с отметкой проверки «как у
+// приложений»). Раньше «Включить» в продвинутом режиме брало его из файла
+// результатов, а круг в простом — из истории прогонов, где этой отметки не
+// было, и они могли включить разное. Возвращает имя файла конфига или null.
+async function refreshBest() {
+  const b = await callSafe(window.zapret.getBestConfig());
+  // Сбой вызова приходит объектом — тогда оставляем, что было.
+  if (b === null || typeof b === 'string') lastTestBest = b;
+  return findConfig(lastTestBest);
 }
 
 // ─────────── Настройки: служба ───────────

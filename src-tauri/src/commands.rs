@@ -1512,6 +1512,17 @@ pub fn open_result_file(
     }
 }
 
+/// Лучший конфиг для «Включить» — один на всё окно: первый в рейтинге
+/// свежего прогона текущего релиза, который есть на диске. Тот же рейтинг, что
+/// у трея и самолечения, с отметкой проверки «как у приложений». Раньше
+/// продвинутый режим брал лучший из файла результатов (с отметкой), а простой —
+/// из истории прогонов (без неё), и они включали разное.
+#[tauri::command(async)]
+pub fn get_best_config(state: State<AppState>) -> Option<String> {
+    let root = root_of(&state)?;
+    crate::monitor::latest_ranking(&root).into_iter().find(|c| root.join(c).exists())
+}
+
 // ─────────── История прогонов ───────────
 
 #[derive(Debug, Serialize)]
@@ -1574,8 +1585,16 @@ pub fn get_test_history(app: AppHandle, state: State<AppState>) -> HistoryResult
         }
         let best_score = rows.iter().map(|r| r.score(dpi)).fold(0.0_f64, f64::max);
         // Тот же порядок, что у трея и самолечения, — иначе «лучшая» в
-        // истории и «лучшая» в переключении могут разойтись.
-        let best_row = rows.iter().min_by(|a, b| crate::tests::rank_desc(a, b, dpi));
+        // истории и «лучшая» в переключении могут разойтись. В том числе
+        // отметка проверки «как у приложений»: без неё история называла
+        // лучшим конфиг, на котором Discord висит, а простой режим его
+        // и включал.
+        let best_row = crate::tests::app_best(&text)
+            .and_then(|b| {
+                let bare = b.trim_end_matches(".bat").to_string();
+                rows.iter().find(|r| r.config.trim_end_matches(".bat") == bare)
+            })
+            .or_else(|| rows.iter().min_by(|a, b| crate::tests::rank_desc(a, b, dpi)));
         let best = best_row.map(|r| r.config.clone());
         if let Some(b) = &best {
             *wins.entry(b.clone()).or_insert(0) += 1;

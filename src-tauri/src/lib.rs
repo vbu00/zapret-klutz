@@ -174,6 +174,7 @@ pub fn run() {
             commands::open_external_url,
             commands::open_release_folder,
             commands::get_test_history,
+            commands::get_best_config,
             commands::get_release_regression,
             commands::import_old_config,
             commands::open_result_file,

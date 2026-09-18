@@ -152,6 +152,7 @@
       return () => un.then((f) => f());
     },
     getTestHistory: () => invoke('get_test_history'),
+    getBestConfig: () => invoke('get_best_config'),
     // release — из какого релиза прогон: история хранится в папке Klutz
     // по релизам, и файл прежнего релиза лежит не в текущей папке.
     openResultFile: (fileName, release) => invoke('open_result_file', { fileName, release: release || null }),
