@@ -56,6 +56,11 @@ fn windows_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("C:\\Windows")
 }
 
+/// Системный файл hosts — от каталога Windows, а не зашитым `C:\Windows`.
+pub fn hosts_path() -> std::path::PathBuf {
+    windows_dir().join("System32").join("drivers").join("etc").join("hosts")
+}
+
 pub fn system_exe(name: &str) -> std::path::PathBuf {
     let root = windows_dir();
     let root = root.as_path();

@@ -106,7 +106,9 @@
     removeExtraStrategies: () => invoke('remove_extra_strategies'),
 
     updateIpsetList: () => invoke('update_ipset_list'),
-    updateHostsFile: () => invoke('update_hosts_file'),
+    hostsStatus: () => invoke('hosts_status'),
+    applyHosts: () => invoke('apply_hosts'),
+    removeHosts: () => invoke('remove_hosts'),
     checkUpdates: () => invoke('check_updates'),
     clearDiscordCache: () => invoke('clear_discord_cache'),
     runDiagnostics: (deep) => invoke('run_diagnostics', { deep: !!deep }),

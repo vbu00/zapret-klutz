@@ -210,8 +210,13 @@
     generateExtraStrategies: noop,
     removeExtraStrategies: noop,
 
-    updateIpsetList: noop,
-    updateHostsFile: noop,
+    updateIpsetList: async () => {
+      await new Promise((r) => setTimeout(r, 500));
+      return { ok: true, mode: 'loaded', applied: true, count: 32126 };
+    },
+    hostsStatus: async () => ({ ok: true, missing: 12, stale: 0, conflicts: 1, applied: false, hasBackup: false }),
+    applyHosts: async () => ({ ok: true, added: 12, removed: 0 }),
+    removeHosts: async () => ({ ok: true, added: 0, removed: 12 }),
     checkUpdates: async () => ({
       ok: true,
       error: null,
@@ -220,7 +225,7 @@
       upToDate: false,
       releaseUrl: 'https://github.com/Flowseal/zapret-discord-youtube/releases/tag/1.9.10',
     }),
-    clearDiscordCache: noop,
+    clearDiscordCache: async () => ({ ok: true, cleared: ['discord/Cache', 'discord/Code Cache'] }),
     runDiagnostics: async (deep) => ({
       ok: true,
       results: [

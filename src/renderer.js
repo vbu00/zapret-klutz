@@ -3011,28 +3011,100 @@ $('saveListsBtn').onclick = async () => {
 
 // ─────────── Настройки: обслуживание ───────────
 
-const maint = $('maintenanceMsg');
+// Плитка на время действия: под названием — что сейчас делается, второе
+// нажатие не проходит, итог — уведомлением. Раньше итог писался строкой в
+// самый низ раздела, под список релизов, и его никто не видел.
+async function maintBusy(btn, busyText, fn) {
+  const desc = btn.querySelector('.mt-desc');
+  const was = desc ? desc.textContent : '';
+  btn.disabled = true;
+  if (desc) desc.textContent = busyText;
+  try {
+    return await fn();
+  } catch (e) {
+    showToast('Не получилось', 'error', { body: String((e && e.message) || e || '') });
+  } finally {
+    btn.disabled = false;
+    if (desc) desc.textContent = was;
+  }
+}
 
-$('updateIpsetBtn').onclick = async () => {
-  maint.textContent = 'Обновляю список IPSet…';
-  const res = await window.zapret.updateIpsetList();
-  maint.textContent = !res.ok
-    ? `Ошибка: ${res.error}`
-    : res.applied
-    ? 'Список IPSet обновлён.'
-    : `Список скачан и сохранён про запас — сейчас IPSet Filter в режиме «${IPSET_LABELS[res.mode] || res.mode}», применится при переключении на «загружен список».`;
-  loadToggles();
-};
+$('updateIpsetBtn').onclick = (e) =>
+  maintBusy(e.currentTarget, 'Скачиваю и проверяю список…', async () => {
+    const res = await window.zapret.updateIpsetList();
+    if (!res.ok) {
+      showToast('Список IPSet не обновлён', 'error', { body: res.error });
+      return;
+    }
+    if (!res.applied) {
+      showToast('Список скачан про запас', 'info', {
+        body: `Сейчас IPSet в режиме «${IPSET_LABELS[res.mode] || res.mode}» — список применится при переключении на «загружен список».`,
+      });
+    } else {
+      // Работающий winws мог прочитать список при запуске — перезапуск
+      // гарантирует, что новый подхвачен.
+      const running = currentState.running && currentState.activeConfig && !currentState.installedAsService;
+      showToast('Список IPSet обновлён', 'success', {
+        body: `${res.count} адресов и сетей.${running ? ' Перезапусти обход, чтобы он точно взял новый список.' : ''}`,
+        ...(running
+          ? {
+              actionLabel: 'Перезапустить',
+              onAction: async () => {
+                if (await applyConfig(currentState.activeConfig, false, true)) showToast('Обход перезапущен', 'success');
+              },
+            }
+          : {}),
+      });
+    }
+    loadToggles();
+  });
 
-$('updateHostsBtn').onclick = async () => {
-  maint.textContent = 'Проверяю hosts-файл…';
-  const res = await window.zapret.updateHostsFile();
-  maint.textContent = !res.ok
-    ? `Ошибка: ${res.error}`
-    : res.needsUpdate
-    ? 'Открыл файл для сравнения — перенеси нужные строки вручную.'
-    : 'hosts-файл уже актуален.';
-};
+$('updateHostsBtn').onclick = (e) =>
+  maintBusy(e.currentTarget, 'Сверяю hosts с рекомендованным…', async () => {
+    const s = await window.zapret.hostsStatus();
+    if (!s.ok) {
+      showToast('Не удалось проверить hosts', 'error', { body: s.error });
+      return;
+    }
+    const conflicts = s.conflicts
+      ? `\n\nДля ${s.conflicts} ${plural(s.conflicts, 'имени', 'имён', 'имён')} у тебя в hosts уже свой адрес — ` +
+        `${s.conflicts === 1 ? 'его' : 'их'} Klutz не тронет.`
+      : '';
+    if (!s.missing && !s.stale) {
+      if (!s.applied) {
+        showToast('hosts уже актуален', 'success');
+        return;
+      }
+      const back = await showConfirm(
+        'Строки из рекомендованного уже в hosts.\n\nУбрать их? Всё остальное в файле останется как есть.'
+      );
+      if (!back) return;
+      const r = await window.zapret.removeHosts();
+      if (r.ok) showToast('Строки Klutz убраны из hosts', 'success', { body: `Убрано: ${r.removed}. Кэш DNS сброшен.` });
+      else showToast('Не удалось изменить hosts', 'error', { body: r.error });
+      return;
+    }
+    const what = [
+      s.missing ? `добавить ${s.missing} ${plural(s.missing, 'строку', 'строки', 'строк')}` : '',
+      s.stale ? `убрать ${s.stale} ${plural(s.stale, 'устаревшую', 'устаревшие', 'устаревших')}` : '',
+    ]
+      .filter(Boolean)
+      .join(' и ');
+    const ok = await showConfirm(
+      `В hosts нужно ${what} из рекомендованного zapret-discord-youtube.${conflicts}\n\n` +
+        'Klutz положит их отдельным блоком. Файл до первой правки сохранится рядом как hosts.klutz.bak, ' +
+        'а убрать строки можно этой же кнопкой.'
+    );
+    if (!ok) return;
+    const r = await window.zapret.applyHosts();
+    if (r.ok) {
+      showToast('hosts обновлён', 'success', {
+        body: `Добавлено: ${r.added}${r.removed ? `, убрано устаревших: ${r.removed}` : ''}. Кэш DNS сброшен.`,
+      });
+    } else {
+      showToast('hosts не обновлён', 'error', { body: r.error });
+    }
+  });
 
 $('checkUpdatesBtn').onclick = async () => {
   const line = $('releaseVersionLine');
@@ -3077,12 +3149,23 @@ $('trialUpdateBtn').onclick = () => {
   runAllTests({ trial: true });
 };
 
-$('clearDiscordBtn').onclick = async () => {
-  maint.textContent = 'Чищу кэш Discord…';
-  const res = await window.zapret.clearDiscordCache();
-  maint.textContent = res.cleared.length
-    ? `Очищено: ${res.cleared.join(', ')}`
-    : 'Кэш уже пуст или Discord не найден.';
+// Discord закрывается принудительно — раньше без предупреждения, хоть посреди
+// звонка. Сами обратно его не запускаем: Klutz работает от администратора, и
+// запущенный из него Discord тоже получил бы права администратора.
+$('clearDiscordBtn').onclick = async (e) => {
+  const btn = e.currentTarget;
+  const ok = await showConfirm(
+    'Discord закроется, если открыт, и его кэш удалится. Звонок, если он идёт, прервётся.\n\nОткрыть Discord потом нужно будет самому.'
+  );
+  if (!ok) return;
+  await maintBusy(btn, 'Закрываю Discord и чищу кэш…', async () => {
+    const res = await window.zapret.clearDiscordCache();
+    if (res.cleared && res.cleared.length) {
+      showToast('Кэш Discord очищен', 'success', { body: `Очищено: ${res.cleared.join(', ')}. Теперь открой Discord снова.` });
+    } else {
+      showToast('Чистить нечего', 'info', { body: 'Кэш уже пуст или Discord не найден.' });
+    }
+  });
 };
 
 // ─────────── Игры ───────────
@@ -3432,12 +3515,16 @@ async function loadExtraStrategies() {
   }
 }
 
-$('extraStrategiesBtn').onclick = async () => {
+$('extraStrategiesBtn').onclick = async (e) => {
+  const btn = e.currentTarget;
   if (extraStrategiesCount > 0) {
     const ok = await showConfirm(`Удалить ${extraStrategiesCount} добавленных вариантов из папки релиза?`);
     if (!ok) return;
-    const res = await window.zapret.removeExtraStrategies();
-    maint.textContent = res.ok ? 'Дополнительные стратегии убраны.' : res.error || 'Не удалось убрать.';
+    await maintBusy(btn, 'Убираю варианты…', async () => {
+      const res = await window.zapret.removeExtraStrategies();
+      if (res.ok) showToast('Дополнительные стратегии убраны', 'success');
+      else showToast('Не удалось убрать варианты', 'error', { body: res.error });
+    });
   } else {
     const ok = await showConfirm(
       'Добавить варианты текущего конфига в папку релиза?\n\n' +
@@ -3446,11 +3533,11 @@ $('extraStrategiesBtn').onclick = async () => {
         'тестов: заранее это не проверить. Убрать можно этой же кнопкой.'
     );
     if (!ok) return;
-    maint.textContent = 'Создаю варианты…';
-    const res = await window.zapret.generateExtraStrategies();
-    maint.textContent = res.ok
-      ? 'Готово. Прогони тесты, чтобы узнать, помогает ли что-то из них.'
-      : res.error || 'Не удалось создать.';
+    await maintBusy(btn, 'Создаю варианты…', async () => {
+      const res = await window.zapret.generateExtraStrategies();
+      if (res.ok) showToast('Варианты добавлены', 'success', { body: 'Прогони тесты, чтобы узнать, помогает ли что-то из них.' });
+      else showToast('Не удалось создать варианты', 'error', { body: res.error });
+    });
   }
   await loadExtraStrategies();
   refreshState();

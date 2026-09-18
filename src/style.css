@@ -1688,6 +1688,18 @@ html[data-theme="dark"] .menu { box-shadow: 0 16px 40px -12px rgba(0,0,0,.7); }
 
 /* ─────────── Настройки: плитки обслуживания ─────────── */
 .maint-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; padding: 14px 20px; }
+.maint-group-title {
+  padding: 14px 20px 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--tx-4);
+}
+.maint-group-title + .maint-tiles { padding-top: 8px; }
+/* Пока плитка выполняет действие: подпись говорит, что происходит, а второе
+   нажатие не проходит. */
+.maint-tile:disabled { opacity: .65; cursor: progress; }
 .maint-tile {
   text-align: left;
   padding: 11px 13px;

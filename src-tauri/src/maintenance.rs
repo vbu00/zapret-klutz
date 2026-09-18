@@ -9,7 +9,7 @@ use crate::toggles::ipset_mode_from;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-const RAW_BASE: &str =
+pub const RAW_BASE: &str =
     "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service";
 
 /// Скачивание через curl.exe — он и так есть в Windows и уже используется
@@ -33,6 +33,38 @@ pub struct IpsetUpdate {
     pub error: Option<String>,
     pub mode: String,
     pub applied: bool,
+    /// Сколько адресов и сетей в скачанном списке.
+    pub count: usize,
+}
+
+/// Меньше — это уже не список, а ошибка загрузки: настоящий у Flowseal
+/// на десятки тысяч строк.
+const MIN_IPSET_LINES: usize = 100;
+
+fn is_net(line: &str) -> bool {
+    let (ip, prefix) = match line.split_once('/') {
+        Some((ip, p)) => (ip, Some(p)),
+        None => (line, None),
+    };
+    ip.parse::<std::net::IpAddr>().is_ok() && prefix.is_none_or(|p| p.parse::<u8>().is_ok_and(|n| n <= 128))
+}
+
+/// Похож ли скачанный текст на список адресов. Проверка до записи обязательна:
+/// пустой `ipset-all.txt` для zapret значит «применять ко всем адресам», то
+/// есть обход начинает разбирать весь трафик игровых портов. Раньше любой
+/// ответ сервера — пустой, обрезанный, страница ошибки — ложился в файл как есть.
+pub fn check_ipset(text: &str) -> Result<usize, String> {
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    let good = lines.iter().filter(|l| is_net(l)).count();
+    if good < MIN_IPSET_LINES {
+        return Err(format!(
+            "в скачанном списке всего {good} адресов — похоже на ошибку загрузки, файл не тронут"
+        ));
+    }
+    if good * 10 < lines.len() * 9 {
+        return Err("скачанный файл не похож на список адресов — файл не тронут".into());
+    }
+    Ok(good)
 }
 
 /// Бэкап всегда получает свежие данные, чтобы возврат в режим «loaded» их
@@ -40,11 +72,14 @@ pub struct IpsetUpdate {
 /// «loaded»: режимы «any»/«none» выставлены осознанно, и эта кнопка не должна
 /// молча их отменять.
 pub fn update_ipset(root: &Path) -> IpsetUpdate {
+    let fail = |e: String, mode: String| IpsetUpdate { ok: false, error: Some(e), mode, applied: false, count: 0 };
     let text = match http_get(&format!("{RAW_BASE}/ipset-service.txt")) {
         Ok(t) => t,
-        Err(e) => {
-            return IpsetUpdate { ok: false, error: Some(e), mode: String::new(), applied: false }
-        }
+        Err(e) => return fail(e, String::new()),
+    };
+    let count = match check_ipset(&text) {
+        Ok(n) => n,
+        Err(e) => return fail(e, String::new()),
     };
     let list = root.join("lists").join("ipset-all.txt");
     let backup = root.join("lists").join("ipset-all.txt.backup");
@@ -53,7 +88,7 @@ pub fn update_ipset(root: &Path) -> IpsetUpdate {
         .unwrap_or_else(|_| "loaded".into());
 
     if let Err(e) = fs::write(&backup, &text) {
-        return IpsetUpdate { ok: false, error: Some(e.to_string()), mode, applied: false };
+        return fail(e.to_string(), mode);
     }
     let applied = mode == "loaded";
     if applied {
@@ -66,46 +101,10 @@ pub fn update_ipset(root: &Path) -> IpsetUpdate {
             .unwrap_or_default();
         let merged = crate::gamescan::merge_block(&text, &свои);
         if let Err(e) = fs::write(&list, &merged) {
-            return IpsetUpdate { ok: false, error: Some(e.to_string()), mode, applied: false };
+            return fail(e.to_string(), mode);
         }
     }
-    IpsetUpdate { ok: true, error: None, mode, applied }
-}
-
-#[derive(Debug, Serialize)]
-pub struct HostsUpdate {
-    pub ok: bool,
-    pub error: Option<String>,
-    #[serde(rename = "needsUpdate")]
-    pub needs_update: bool,
-}
-
-/// Сам файл hosts не переписываем: открываем рекомендованный текст в блокноте
-/// и подсвечиваем системный файл в проводнике. Правка hosts за спиной
-/// пользователя — не то, что приложение должно делать молча.
-pub fn update_hosts() -> HostsUpdate {
-    let text = match http_get(&format!("{RAW_BASE}/hosts")) {
-        Ok(t) => t,
-        Err(e) => return HostsUpdate { ok: false, error: Some(e), needs_update: false },
-    };
-    let hosts_path = r"C:\Windows\System32\drivers\etc\hosts";
-    let current = fs::read_to_string(hosts_path).unwrap_or_default();
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-    let needs_update = match (lines.first(), lines.last()) {
-        (Some(f), Some(l)) => !(current.contains(f) && current.contains(l)),
-        _ => false,
-    };
-    if needs_update {
-        let tmp = std::env::temp_dir().join("zapret_hosts.txt");
-        if fs::write(&tmp, &text).is_ok() {
-            let _ = Command::new(sys::system_exe("notepad.exe")).arg(&tmp).spawn();
-            // Именно одним аргументом: explorer разбирает командную строку
-            // сам и на «/select,» с пробелом перед путём открывает папку по
-            // умолчанию вместо того, чтобы подсветить файл.
-            let _ = Command::new(sys::system_exe("explorer.exe")).arg(format!("/select,{hosts_path}")).spawn();
-        }
-    }
-    HostsUpdate { ok: true, error: None, needs_update }
+    IpsetUpdate { ok: true, error: None, mode, applied, count }
 }
 
 #[derive(Debug, Serialize)]
@@ -330,6 +329,18 @@ mod unit_tests {
         ensure_user_lists(&dir);
         assert!(!dir.join("lists").exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn скачанный_ipset_проверяется_до_записи() {
+        let good: String = (0..150).map(|i| format!("10.{}.0.0/16\n", i % 250)).collect();
+        assert_eq!(check_ipset(&format!("# шапка\n{good}\n2606:4700::/32\n")), Ok(151));
+        // Пусто, обрезано, страница ошибки — файл не трогаем.
+        assert!(check_ipset("").is_err());
+        assert!(check_ipset("1.1.1.1/32\n2.2.2.2\n").is_err());
+        let html: String = (0..200).map(|_| "<div>error</div>\n").collect();
+        assert!(check_ipset(&format!("{good}{html}")).is_err());
+        assert!(!is_net("10.0.0.0/129") && !is_net("<html>") && is_net("203.0.113.113/32"));
     }
 
     #[test]

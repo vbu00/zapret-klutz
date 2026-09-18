@@ -8,6 +8,7 @@
 
 mod autostart;
 mod autotest;
+mod bg;
 mod carry;
 mod commands;
 mod configdiff;
@@ -16,6 +17,7 @@ mod discorddiag;
 mod favicon;
 mod gamescan;
 mod history;
+mod hosts;
 mod klutzupdate;
 mod maintenance;
 mod monitor;
@@ -120,13 +122,13 @@ pub fn run() {
             commands::run_config,
             commands::stop_config,
             commands::get_winws_log,
-            commands::check_games,
+            bg::check_games,
             commands::get_favicon,
             commands::get_game_targets,
             commands::get_default_game_targets,
             commands::save_game_targets,
             commands::reset_game_targets,
-            commands::run_tests,
+            bg::run_tests,
             commands::get_last_test_results,
             commands::stop_tests,
             commands::install_service,
@@ -138,8 +140,8 @@ pub fn run() {
             commands::set_auto_update,
             commands::get_autostart,
             commands::set_autostart,
-            commands::run_diagnostics,
-            commands::fix_diagnostic,
+            bg::run_diagnostics,
+            bg::fix_diagnostic,
             commands::get_auto_switch,
             commands::set_auto_switch,
             commands::get_heal_log,
@@ -163,28 +165,30 @@ pub fn run() {
             commands::get_release_regression,
             commands::import_old_config,
             commands::open_result_file,
-            commands::update_ipset_list,
-            commands::update_hosts_file,
-            commands::check_updates,
-            commands::clear_discord_cache,
+            bg::update_ipset_list,
+            bg::hosts_status,
+            bg::apply_hosts,
+            bg::remove_hosts,
+            bg::check_updates,
+            bg::clear_discord_cache,
             commands::get_discord_quic,
             commands::set_discord_quic,
-            commands::diagnose_discord,
+            bg::diagnose_discord,
             commands::get_system_proxy,
             commands::check_vpn,
-            commands::recon_network,
+            bg::recon_network,
             commands::get_whats_new,
-            commands::trial_latest_release,
+            bg::trial_latest_release,
             commands::developer_report,
-            commands::get_klutz_release,
-            commands::install_klutz_update,
+            bg::get_klutz_release,
+            bg::install_klutz_update,
             commands::save_report,
             commands::get_custom_lists,
             commands::save_custom_lists,
             commands::export_settings,
             commands::import_settings,
-            commands::get_latest_release_info,
-            commands::download_latest_release,
+            bg::get_latest_release_info,
+            bg::download_latest_release,
             commands::list_releases,
             commands::delete_release,
             commands::load_archive,
@@ -195,13 +199,13 @@ pub fn run() {
             commands::set_auto_test_schedule,
             commands::copy_text,
             commands::get_versions,
-            commands::check_component_updates,
-            commands::check_klutz_update,
-            commands::check_bypass_chance,
+            bg::check_component_updates,
+            bg::check_klutz_update,
+            bg::check_bypass_chance,
             commands::get_game_scan,
             commands::game_candidates,
-            commands::scan_game_traffic,
-            commands::scan_game_from_log,
+            bg::scan_game_traffic,
+            bg::scan_game_from_log,
             commands::clear_game_ips,
             commands::exclude_game_ips,
             commands::remove_game_ips,

@@ -1147,31 +1147,9 @@
             </div>
           </div>
 
+          <!-- По группам: раньше 13 плиток шли одной сеткой вперемешку. -->
+          <div class="maint-group-title">Проверки</div>
           <div class="maint-tiles">
-            <button class="maint-tile" id="exportSettingsBtn">
-              <span class="mt-title">Экспорт настроек</span>
-              <span class="mt-desc">Уведомления, самолечение, автопрогон тестов, свои игровые адреса — в один файл.</span>
-            </button>
-            <button class="maint-tile" id="importSettingsBtn">
-              <span class="mt-title">Импорт настроек</span>
-              <span class="mt-desc">Применить настройки из ранее экспортированного файла.</span>
-            </button>
-            <button class="maint-tile" id="updateIpsetBtn">
-              <span class="mt-title">Обновить список IPSet</span>
-              <span class="mt-desc">Скачать актуальный список адресов.</span>
-            </button>
-            <button class="maint-tile" id="updateHostsBtn">
-              <span class="mt-title">Обновить hosts</span>
-              <span class="mt-desc">Сверить системный файл hosts с рекомендованным.</span>
-            </button>
-            <button class="maint-tile" id="changeReleaseBtn2">
-              <span class="mt-title">Сменить релиз</span>
-              <span class="mt-desc">Меняет бинарную версию ядра. При неудаче обход может перестать работать.</span>
-            </button>
-            <button class="maint-tile" id="clearDiscordBtn">
-              <span class="mt-title">Очистить кэш Discord</span>
-              <span class="mt-desc">Помогает, когда клиент кэширует сломанные ответы.</span>
-            </button>
             <button class="maint-tile" id="discordDiagTileBtn">
               <span class="mt-title">Почему Discord не запускается</span>
               <span class="mt-desc">Логи Discord, прокси, обход и сеть — и что с этим делать.</span>
@@ -1184,9 +1162,33 @@
               <span class="mt-title">Отчёт для разработчика</span>
               <span class="mt-desc">Версии, стратегия, фильтры и итоги тестов — скопировать или сохранить файлом.</span>
             </button>
+          </div>
+
+          <div class="maint-group-title">Списки и система</div>
+          <div class="maint-tiles">
+            <button class="maint-tile" id="updateIpsetBtn">
+              <span class="mt-title">Обновить список IPSet</span>
+              <span class="mt-desc">Скачать актуальный список адресов. Битый или пустой не запишется.</span>
+            </button>
+            <button class="maint-tile" id="updateHostsBtn">
+              <span class="mt-title">Обновить hosts</span>
+              <span class="mt-desc">Добавить рекомендованные строки zapret, сохранив копию файла. Повторно — убрать их.</span>
+            </button>
+            <button class="maint-tile" id="clearDiscordBtn">
+              <span class="mt-title">Очистить кэш Discord</span>
+              <span class="mt-desc">Закроет Discord и удалит его кэш — когда клиент держит сломанные ответы.</span>
+            </button>
+          </div>
+
+          <div class="maint-group-title">Релиз zapret</div>
+          <div class="maint-tiles">
             <button class="maint-tile" id="checkUpdatesBtn">
               <span class="mt-title">Проверить обновления Zapret</span>
               <span class="mt-desc" id="releaseVersionLine">Проверить, вышла ли новая версия ядра.</span>
+            </button>
+            <button class="maint-tile" id="changeReleaseBtn2">
+              <span class="mt-title">Сменить релиз</span>
+              <span class="mt-desc">Меняет бинарную версию ядра. При неудаче обход может перестать работать.</span>
             </button>
             <button class="maint-tile" id="extraStrategiesBtn">
               <span class="mt-title" id="extraStrategiesTitle">Добавить стратегии</span>
@@ -1211,7 +1213,17 @@
 
           <div class="release-list" id="releaseList"></div>
 
-          <p id="maintenanceMsg" class="area-msg"></p>
+          <div class="maint-group-title">Настройки Klutz</div>
+          <div class="maint-tiles">
+            <button class="maint-tile" id="exportSettingsBtn">
+              <span class="mt-title">Экспорт настроек</span>
+              <span class="mt-desc">Уведомления и их звук, самолечение, автопрогон тестов, свои адреса для проверки и Telegram-прокси вместе с секретом — в один файл.</span>
+            </button>
+            <button class="maint-tile" id="importSettingsBtn">
+              <span class="mt-title">Импорт настроек</span>
+              <span class="mt-desc">Применить настройки из ранее экспортированного файла.</span>
+            </button>
+          </div>
         </div>
 
         <div class="page-foot">

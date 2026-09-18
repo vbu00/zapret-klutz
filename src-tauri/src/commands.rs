@@ -410,7 +410,7 @@ pub struct CheckGamesResult {
     strategy: Option<String>,
 }
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn check_games(state: State<AppState>) -> CheckGamesResult {
     let targets = {
         let p = state.persisted.lock().unwrap();
@@ -494,7 +494,7 @@ pub struct RunTestsResult {
 /// «funnel» — то, ради чего всё затевалось: сначала полный прогон DPI, потом
 /// HTTP/Ping, но только по тем конфигам, что прошли DPI на 100%. Экономит
 /// половину времени и не тратит его на заведомо пробитые блокировкой варианты.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn run_tests(app: AppHandle, state: State<AppState>, mode: String) -> RunTestsResult {
     let root = match state.persisted.lock().unwrap().root_path.clone() {
         Some(r) => PathBuf::from(r),
@@ -581,7 +581,7 @@ pub struct TrialResult {
 /// Живой случай, ради которого это сделано: 1.10.2 оказался хуже 1.9.9c —
 /// ALT11 упал с 36 до 12, — а заметили это уже после переключения, когда
 /// Discord перестал запускаться.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn trial_latest_release(app: AppHandle, state: State<AppState>) -> TrialResult {
     let fail = |e: String| TrialResult { ok: false, error: Some(e), text: String::new(), trial: None };
     let Some(cur_root) = root_of(&state) else { return fail("Сначала загрузи релиз zapret.".into()) };
@@ -1097,7 +1097,7 @@ pub struct DiagResult {
     results: Vec<crate::diag::DiagRow>,
 }
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn run_diagnostics(state: State<AppState>, deep: Option<bool>) -> DiagResult {
     let root = root_of(&state);
     DiagResult {
@@ -1106,7 +1106,7 @@ pub fn run_diagnostics(state: State<AppState>, deep: Option<bool>) -> DiagResult
     }
 }
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn fix_diagnostic(key: String) -> SimpleResult {
     match crate::diag::fix(&key) {
         Ok(()) => ok(),
@@ -1606,7 +1606,7 @@ pub fn get_test_history(app: AppHandle, state: State<AppState>) -> HistoryResult
 
 // ─────────── Обслуживание ───────────
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn update_ipset_list(state: State<AppState>) -> serde_json::Value {
     match root_of(&state) {
         Some(root) => serde_json::to_value(crate::maintenance::update_ipset(&root)).unwrap_or_default(),
@@ -1614,12 +1614,7 @@ pub fn update_ipset_list(state: State<AppState>) -> serde_json::Value {
     }
 }
 
-#[tauri::command(async)]
-pub fn update_hosts_file() -> serde_json::Value {
-    serde_json::to_value(crate::maintenance::update_hosts()).unwrap_or_default()
-}
-
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn check_updates(state: State<AppState>) -> serde_json::Value {
     match root_of(&state) {
         Some(root) => serde_json::to_value(crate::maintenance::check_updates(&root)).unwrap_or_default(),
@@ -1685,14 +1680,14 @@ fn klutz_update(app: &AppHandle) -> ComponentUpdate {
 }
 
 /// Последний релиз Klutz: что в нём и где установщик.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn get_klutz_release() -> Result<crate::klutzupdate::KlutzRelease, String> {
     crate::klutzupdate::latest()
 }
 
 /// Скачивает установщик новой версии Klutz и запускает его, а сам Klutz
 /// закрывается: установщик не может заменить файлы запущенного приложения.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn install_klutz_update(app: AppHandle) -> SimpleResult {
     let rel = match crate::klutzupdate::latest() {
         Ok(r) => r,
@@ -1727,13 +1722,13 @@ pub fn install_klutz_update(app: AppHandle) -> SimpleResult {
 }
 
 /// Проверка при запуске — только Klutz, без zapret и прокси.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn check_klutz_update(app: AppHandle) -> ComponentUpdate {
     klutz_update(&app)
 }
 
 /// Сверяет Klutz и обе встроенные части с последними версиями на GitHub.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn check_component_updates(app: AppHandle, state: State<AppState>) -> ComponentUpdates {
     let zapret = match root_of(&state) {
         Some(root) => {
@@ -1761,7 +1756,7 @@ pub fn check_component_updates(app: AppHandle, state: State<AppState>) -> Compon
     ComponentUpdates { klutz: klutz_update(&app), zapret, tgws }
 }
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn clear_discord_cache() -> serde_json::Value {
     serde_json::to_value(crate::maintenance::clear_discord_cache()).unwrap_or_default()
 }
@@ -1883,7 +1878,7 @@ fn bypass_chance(state: &State<AppState>) -> BypassChance {
     BypassChance { verdict, note, targets, response, tls13, volume }
 }
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn check_bypass_chance(state: State<AppState>) -> BypassChance {
     bypass_chance(&state)
 }
@@ -1896,7 +1891,7 @@ pub fn check_vpn() -> crate::vpncheck::VpnCheck {
     crate::vpncheck::check()
 }
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn recon_network(state: State<AppState>) -> crate::recon::Recon {
     use crate::recon::Recon;
     let vpn = crate::vpncheck::check();
@@ -2047,7 +2042,7 @@ pub fn game_candidates() -> Vec<crate::gamescan::Candidate> {
 /// они попадают в фильтр tasklist как один аргумент, который система
 /// передаёт процессу целиком. Но длину ограничиваем — иначе чужая строка на
 /// мегабайт просто съест память.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn scan_game_traffic(
     app: AppHandle,
     state: State<AppState>,
@@ -2115,7 +2110,7 @@ pub fn scan_game_traffic(
 /// Обход перезапускается дважды: с `--debug` и обратно. Второй раз — ПОСЛЕ
 /// записи адресов и фильтра. Раньше порядок был обратный: обход поднимался со
 /// старым списком, и собранное начинало работать лишь со следующим запуском.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn scan_game_from_log(
     app: AppHandle,
     state: State<AppState>,
@@ -2476,7 +2471,7 @@ pub fn get_system_proxy() -> Option<crate::discorddiag::Proxy> {
 }
 
 /// «Почему Discord не запускается». До полуминуты: пробы сети идут по очереди.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn diagnose_discord(state: State<AppState>) -> crate::discorddiag::Report {
     let (active, root) = {
         let p = state.persisted.lock().unwrap();
@@ -2504,10 +2499,17 @@ pub fn diagnose_discord(state: State<AppState>) -> crate::discorddiag::Report {
 #[tauri::command(async)]
 pub fn export_settings(app: AppHandle, state: State<AppState>, path: String) -> SimpleResult {
     let p = state.persisted.lock().unwrap();
+    // Всё, что обещает подпись плитки. Автопрогона и звука здесь раньше не
+    // было, хотя плитка их называла.
     let payload = serde_json::json!({
         "gameTargets": p.game_targets,
         "autoSwitch": p.auto_switch,
         "notifications": p.notifications,
+        "notifyVolume": p.notify_volume,
+        "notifyDuration": p.notify_duration,
+        "autotestEnabled": p.autotest_enabled,
+        "autotestDays": p.autotest_days,
+        "autotestMode": p.autotest_mode,
         "tgws": p.tgws,
     });
     drop(p);
@@ -2558,6 +2560,23 @@ pub fn import_settings(app: AppHandle, state: State<AppState>, path: String) -> 
                 }
             }
         }
+        // Те же правила, что у ручных переключателей: громкость до 100,
+        // длительность и режим — только из известных значений, дни — 1–30.
+        if let Some(v) = v.get("notifyVolume").and_then(|v| v.as_u64()) {
+            p.notify_volume = Some(v.min(100) as u8);
+        }
+        if let Some(d) = v.get("notifyDuration").and_then(|d| d.as_str()) {
+            p.notify_duration = Some(if d == "long" { "long".into() } else { "short".into() });
+        }
+        if let Some(e) = v.get("autotestEnabled").and_then(|e| e.as_bool()) {
+            p.autotest_enabled = Some(e);
+        }
+        if let Some(d) = v.get("autotestDays").and_then(|d| d.as_u64()) {
+            p.autotest_days = Some(d.clamp(1, 30) as u32);
+        }
+        if let Some(m) = v.get("autotestMode").and_then(|m| m.as_str()) {
+            p.autotest_mode = Some(if m == "dpi" { "dpi".into() } else { "standard".into() });
+        }
     }
     save_state(&app, &state);
     if imported_tgws_bad {
@@ -2568,7 +2587,7 @@ pub fn import_settings(app: AppHandle, state: State<AppState>, path: String) -> 
 
 // ─────────── Релизы zapret ───────────
 
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn get_latest_release_info() -> crate::releases::LatestRelease {
     crate::releases::latest_release()
 }
@@ -2584,7 +2603,7 @@ pub struct DownloadResult {
 
 /// Скачивает свежий релиз и сразу распаковывает — интерфейсу нужен готовый
 /// корень, а не путь к архиву.
-#[tauri::command(async)]
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач.
 pub fn download_latest_release(app: AppHandle, state: State<AppState>) -> DownloadResult {
     let fail = |e: String| DownloadResult { ok: false, error: Some(e), root: None, carried: Vec::new() };
     let zip = match crate::releases::download_latest(&app) {

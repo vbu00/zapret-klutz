@@ -285,7 +285,9 @@ pub fn hide_popup(app: &AppHandle) {
     }
 }
 
-#[tauri::command]
+// Не в главном потоке: snapshot запускает tasklist и читает файлы, и на
+// каждом правом клике по трею окно и меню подмерзали на это время.
+#[tauri::command(async)]
 pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     let s = snapshot(&app);
     // Версию zapret читаем только при открытии меню, а не в snapshot: тот
