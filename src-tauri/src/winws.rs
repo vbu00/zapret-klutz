@@ -56,6 +56,31 @@ pub(crate) static LINE_CONTINUATION: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \
 pub(crate) static EXE_MARKER: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?i)winws\.exe""#).unwrap());
 pub(crate) static TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?:[^\s"]+|"[^"]*")+"#).unwrap());
 
+/// Токен строки запуска так, как его получит winws после cmd: кавычки
+/// снимаются, а `^x` вне кавычек становится `x` — это экранирование cmd.
+///
+/// Раньше снимались только кавычки. В FAKE TLS AUTO у Flowseal стоит
+/// `--dpi-desync-fake-tls=^!`: из .bat winws получает `!` (встроенная
+/// подложка), а Klutz передавал `^!` как имя файла — winws сразу выходил,
+/// и конфиг «не запускался», хотя в тестах (они запускают сам .bat) работал.
+pub(crate) fn unescape_token(t: &str) -> String {
+    let mut out = String::with_capacity(t.len());
+    let mut quoted = false;
+    let mut chars = t.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => quoted = !quoted,
+            '^' if !quoted => {
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Port of `extractWinwsArgs()` — reads a general*.bat and pulls out the
 /// literal argv winws.exe gets launched with, so we can spawn it directly
 /// (piped stdio) instead of via `start /min`, which would detach it into an
@@ -79,7 +104,7 @@ pub fn extract_winws_args(root: &Path, file_name: &str) -> Option<Vec<String>> {
 
     let args: Vec<String> = TOKEN_RE
         .find_iter(after_exe)
-        .map(|m| m.as_str().replace('"', ""))
+        .map(|m| unescape_token(m.as_str()))
         .map(|t| {
             t.replace("%BIN%", &bin_path)
                 .replace("%LISTS%", &lists_path)
@@ -374,6 +399,59 @@ mod unit_tests {
         fs::create_dir_all(dir.join("lists")).unwrap();
         fs::write(dir.join("general.bat"), bat).unwrap();
         dir
+    }
+
+    #[test]
+    fn экранирование_cmd_снимается_как_у_cmd() {
+        assert_eq!(unescape_token("--dpi-desync-fake-tls=^!"), "--dpi-desync-fake-tls=!");
+        assert_eq!(unescape_token("--hostlist=\"%LISTS%list.txt\""), "--hostlist=%LISTS%list.txt");
+        // Внутри кавычек «^» — обычный символ, cmd его не трогает.
+        assert_eq!(unescape_token("\"%BIN%a^b.bin\""), "%BIN%a^b.bin");
+        assert_eq!(unescape_token("^^"), "^");
+        assert_eq!(unescape_token("^"), "");
+    }
+
+    /// Все конфиги настоящего релиза: ни в одном аргументе не остаётся «^».
+    /// Релиз Flowseal в репозиторий не кладём, поэтому тест запускается
+    /// вручную: `KLUTZ_RELEASE=<папка релиза> cargo test -- --ignored все_конфиги`.
+    #[test]
+    #[ignore]
+    fn все_конфиги_релиза_без_экранирования() {
+        let root = std::path::PathBuf::from(std::env::var("KLUTZ_RELEASE").expect("KLUTZ_RELEASE"));
+        let mut checked = 0;
+        for entry in fs::read_dir(&root).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.to_lowercase().starts_with("general") || !name.to_lowercase().ends_with(".bat") {
+                continue;
+            }
+            let args = extract_winws_args(&root, &name).unwrap_or_else(|| panic!("{name}: не разобрался"));
+            assert!(args.iter().all(|a| !a.contains('^')), "{name}: {args:?}");
+            // «^!» стоит не во всех FAKE TLS AUTO — сверяем по самому файлу.
+            if fs::read_to_string(entry.path()).unwrap_or_default().contains("fake-tls=^!") {
+                assert!(args.contains(&"--dpi-desync-fake-tls=!".to_string()), "{name}");
+            }
+            checked += 1;
+        }
+        println!("проверено конфигов: {checked}");
+        assert!(checked > 0);
+    }
+
+    /// Живой случай: FAKE TLS AUTO из 1.10.2 не запускался из Klutz.
+    #[test]
+    fn fake_tls_auto_получает_встроенную_подложку() {
+        let bat = [
+            "@echo off",
+            "set \"BIN=%~dp0bin\\\"",
+            "start \"zapret: %~n0\" /min \"%BIN%winws.exe\" --wf-tcp=80,443 ^",
+            "--filter-tcp=443 --dpi-desync=fake,multidisorder --dpi-desync-fake-tls=0x00000000 --dpi-desync-fake-tls=^! --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com",
+        ]
+        .join("\r\n");
+        let dir = временный_релиз(&bat);
+        let args = extract_winws_args(&dir, "general.bat").unwrap();
+        assert!(args.contains(&"--dpi-desync-fake-tls=!".to_string()), "{args:?}");
+        assert!(args.iter().all(|a| !a.contains('^')), "{args:?}");
+        assert!(args.contains(&"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com".to_string()));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Собирает .bat по образцу настоящего релиза: многопрофильный запуск

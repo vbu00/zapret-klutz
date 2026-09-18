@@ -19,7 +19,7 @@ pub fn profiles(bat: &str) -> Vec<Vec<String>> {
     let Some(m) = crate::winws::EXE_MARKER.find(line) else { return Vec::new() };
     let mut out: Vec<Vec<String>> = vec![Vec::new()];
     for t in crate::winws::TOKEN_RE.find_iter(&line[m.end()..]) {
-        let t = t.as_str().replace('"', "");
+        let t = crate::winws::unescape_token(t.as_str());
         if t.is_empty() || t == "^" {
             continue;
         }
