@@ -239,6 +239,11 @@
         <span>Игры</span>
       </div>
 
+      <div class="nav-item" data-page="lists" title="Списки">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M3.46447 3.46447C2 4.92893 2 7.28595 2 12C2 16.714 2 19.0711 3.46447 20.5355C4.92893 22 7.28595 22 12 22C16.714 22 19.0711 22 20.5355 20.5355C22 19.0711 22 16.714 22 12C22 7.28595 22 4.92893 20.5355 3.46447C19.0711 2 16.714 2 12 2C7.28595 2 4.92893 2 3.46447 3.46447ZM6.25 7.5C6.25 6.94772 6.69772 6.5 7.25 6.5C7.80228 6.5 8.25 6.94772 8.25 7.5C8.25 8.05228 7.80228 8.5 7.25 8.5C6.69772 8.5 6.25 8.05228 6.25 7.5ZM10.25 7.5C10.25 7.08579 10.5858 6.75 11 6.75H17C17.4142 6.75 17.75 7.08579 17.75 7.5C17.75 7.91421 17.4142 8.25 17 8.25H11C10.5858 8.25 10.25 7.91421 10.25 7.5ZM7.25 11C6.69772 11 6.25 11.4477 6.25 12C6.25 12.5523 6.69772 13 7.25 13C7.80228 13 8.25 12.5523 8.25 12C8.25 11.4477 7.80228 11 7.25 11ZM10.25 12C10.25 11.5858 10.5858 11.25 11 11.25H17C17.4142 11.25 17.75 11.5858 17.75 12C17.75 12.4142 17.4142 12.75 17 12.75H11C10.5858 12.75 10.25 12.4142 10.25 12ZM7.25 15.5C6.69772 15.5 6.25 15.9477 6.25 16.5C6.25 17.0523 6.69772 17.5 7.25 17.5C7.80228 17.5 8.25 17.0523 8.25 16.5C8.25 15.9477 7.80228 15.5 7.25 15.5ZM10.25 16.5C10.25 16.0858 10.5858 15.75 11 15.75H17C17.4142 15.75 17.75 16.0858 17.75 16.5C17.75 16.9142 17.4142 17.25 17 17.25H11C10.5858 17.25 10.25 16.9142 10.25 16.5Z" fill="currentColor"></path></svg>
+        <span>Списки</span>
+      </div>
+
       <div class="nav-item" data-page="telegram" title="Telegram">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.7096 3.6545C20.7096 3.6545 22.6523 2.897 22.4904 4.73664C22.4364 5.49415 21.9508 8.1454 21.573 11.0131L20.2779 19.5079C20.2779 19.5079 20.17 20.7524 19.1987 20.9688C18.2273 21.1852 16.7704 20.2113 16.5005 19.9949C16.2847 19.8326 12.4534 17.3977 11.1043 16.2074C10.7265 15.8827 10.2948 15.2334 11.1582 14.4759L16.8243 9.06525C17.4719 8.41595 18.1194 6.90095 15.4213 8.7406L7.86655 13.8808C7.86655 13.8808 7.00315 14.4218 5.3843 13.9349L1.87671 12.8527C1.87671 12.8527 0.581605 12.0411 2.79408 11.2295C8.19035 8.68645 14.8277 6.0893 20.7096 3.6545Z" fill="currentColor"></path></svg>
         <span>Telegram</span>
@@ -706,6 +711,53 @@
             <button class="btn ghost xs" id="saveDiagBtn">Сохранить в файл</button>
             <button class="btn ghost xs" id="copyDiagBtn">Скопировать отчёт</button>
           </div>
+        </div>
+      </section>
+
+      <!-- ═══ Списки ═══ -->
+      <section id="pageLists" class="page hidden">
+        <div class="page-head">
+          <h1>Списки</h1>
+          <p>Что обход трогает, а что нет — и почему. Проверь любой сайт: попадает ли под обход и открывается ли.</p>
+        </div>
+
+        <div class="card" id="siteCheckCard">
+          <div class="card-head">
+            <div class="ch-left">
+              <span class="ch-title">Проверить сайт</span>
+              <span class="ch-sub">адрес или ссылка целиком</span>
+            </div>
+          </div>
+          <div class="site-check-row">
+            <input type="text" id="siteCheckInput" class="select-native" placeholder="rutracker.org" spellcheck="false" autocomplete="off" />
+            <button class="btn primary sm" id="siteCheckBtn">Проверить</button>
+          </div>
+          <div id="siteCheckResult" class="hidden">
+            <div class="site-verdict" id="siteVerdict"></div>
+            <p class="game-note" id="siteAdvice"></p>
+            <div id="siteRows"></div>
+            <div class="site-actions" id="siteActions"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="ch-left">
+              <span class="ch-title">Что обходится</span>
+              <span class="ch-sub">обход трогает только это</span>
+            </div>
+          </div>
+          <div id="listsInclude"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="ch-left">
+              <span class="ch-title">Что не трогать никогда</span>
+              <span class="ch-sub">важнее списков выше</span>
+            </div>
+          </div>
+          <div id="listsExclude"></div>
         </div>
       </section>
 

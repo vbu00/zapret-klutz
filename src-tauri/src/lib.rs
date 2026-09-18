@@ -20,6 +20,7 @@ mod history;
 mod hosts;
 mod keep;
 mod klutzupdate;
+mod lists;
 mod maintenance;
 mod monitor;
 mod notify;
@@ -188,6 +189,11 @@ pub fn run() {
             commands::get_system_proxy,
             commands::check_vpn,
             bg::recon_network,
+            commands::lists_overview,
+            bg::check_site,
+            commands::add_site,
+            commands::unexclude_site,
+            commands::open_list_file,
             commands::get_whats_new,
             bg::trial_latest_release,
             commands::developer_report,

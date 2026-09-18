@@ -2006,9 +2006,20 @@ html[data-theme="dark"] .menu { box-shadow: 0 16px 40px -12px rgba(0,0,0,.7); }
 .card > .card-note { padding: 0 20px 14px; }
 /* У разведки пояснения длинные: подпись цели держим в одну строку, а
    переносится пояснение справа — иначе они налезали друг на друга. */
-#reconRows .diag-row > span:nth-child(2) { flex: 0 0 auto; white-space: nowrap; }
+#reconRows .diag-row > span:nth-child(2),
+#siteRows .diag-row > span:nth-child(2) { flex: 0 0 auto; white-space: nowrap; }
 #reconRows .diag-row .dr-note,
-#reconRows .diag-row .dr-warn { flex: 1 1 auto; min-width: 0; text-align: right; }
+#reconRows .diag-row .dr-warn,
+#siteRows .diag-row .dr-note,
+#siteRows .diag-row .dr-warn { flex: 1 1 auto; min-width: 0; text-align: right; }
+
+/* ─────────── Списки ─────────── */
+.site-check-row { display: flex; gap: 8px; padding: 0 20px 16px; }
+.site-check-row input { flex: 1; min-width: 0; }
+.site-verdict { padding: 2px 20px 6px; font-size: 15.5px; font-weight: 700; color: var(--tx); }
+#siteAdvice { padding: 0 20px 12px; }
+.site-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px 16px; }
+.site-actions:empty { display: none; }
 .diag-row .diag-fix-btn { margin-left: auto; flex: 0 0 auto; }
 
 /* ─────────── Лог / пустое ─────────── */

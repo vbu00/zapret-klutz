@@ -302,6 +302,31 @@
     setDiscordQuic: noop,
     getSystemProxy: async () => ({ server: 'http://127.0.0.1:12334', owner: 'Hiddify.exe' }),
     checkVpn: async () => ({ blocked: false, reasons: [], notes: [] }),
+    listsOverview: async () => ({
+      ipsetMode: 'loaded',
+      gameNets: 36,
+      lists: [
+        { file: 'list-general.txt', title: 'Сайты из релиза', desc: 'Discord и другие сайты, которые собрал автор релиза. Обход узнаёт их по имени сайта.', exclude: false, ips: false, user: false, count: 59, exists: true },
+        { file: 'list-google.txt', title: 'YouTube', desc: 'Домены YouTube и Google — у них своё правило со своими настройками.', exclude: false, ips: false, user: false, count: 20, exists: true },
+        { file: 'list-general-user.txt', title: 'Твои сайты', desc: 'Что ты добавил сам. Обновление релиза их не затирает — Klutz переносит.', exclude: false, ips: false, user: true, count: 0, exists: true },
+        { file: 'ipset-all.txt', title: 'По адресам (IPSet)', desc: 'Адреса без имени сайта: серверы игр, голос. Работает в режиме «загружен список».', exclude: false, ips: true, user: false, count: 32126, exists: true },
+        { file: 'list-exclude.txt', title: 'Не трогать: из релиза', desc: 'Сайты, которые обход пропускает всегда, даже если они попали в другие списки.', exclude: true, ips: false, user: false, count: 127, exists: true },
+        { file: 'list-exclude-user.txt', title: 'Не трогать: твои', desc: 'Сайты, которые ты сам попросил не трогать.', exclude: true, ips: false, user: true, count: 0, exists: true },
+        { file: 'ipset-exclude.txt', title: 'Не трогать: адреса из релиза', desc: 'Адреса и сети, которые обход пропускает всегда.', exclude: true, ips: true, user: false, count: 11, exists: true },
+        { file: 'ipset-exclude-user.txt', title: 'Не трогать: твои адреса', desc: 'Адреса, которые ты сам исключил, — например, игровые, которым обход мешал.', exclude: true, ips: true, user: true, count: 0, exists: true },
+      ],
+    }),
+    checkSite: async (host) => {
+      await new Promise((r) => setTimeout(r, 400));
+      const h = String(host).replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+      if (h.includes('discord')) {
+        return { ok: true, host: h, inLists: ['Сайты из релиза'], excludedBy: [], ip: '162.159.130.233', ipInIpset: true, rule: 'правило 5 из 7: TCP 80,443, по имени — «Сайты из релиза» (list-general.txt), «Твои сайты» (list-general-user.txt)', config: 'general (ALT11).bat', reach: { ok: true, ms: 41, verdict: 'ok' }, verdict: 'Под обходом и открывается', advice: 'Всё в порядке.', canAdd: false, canUnexclude: false };
+      }
+      return { ok: true, host: h, inLists: [], excludedBy: [], ip: '104.21.32.1', ipInIpset: false, rule: null, config: 'general (ALT11).bat', reach: { ok: false, ms: 0, verdict: 'sni', why: 'с нейтральным именем тот же адрес отвечает — режут по имени' }, verdict: 'Обход этот сайт не трогает', advice: 'Его нет ни в одном списке, по которому работает обход. Добавь его в обход и перезапусти обход.', canAdd: true, canUnexclude: false };
+    },
+    addSite: async () => ({ ok: true }),
+    unexcludeSite: async () => ({ ok: true }),
+    openListFile: async () => ({ ok: true }),
     reconNetwork: async () => {
       await new Promise((r) => setTimeout(r, 400));
       return {

@@ -217,6 +217,7 @@ function switchPage(name) {
     loadGameTargetsArea();
   }
   if (name === 'games') loadGames();
+  if (name === 'lists') loadListsPage();
   if (name === 'telegram') {
     loadTgwsproxyStatus();
     loadTgwsproxyAutostart();
@@ -278,6 +279,7 @@ function render() {
   $('pageStrategies').classList.toggle('hidden', !hasRelease || activePage !== 'strategies');
   $('pageDiagnostics').classList.toggle('hidden', !hasRelease || activePage !== 'diagnostics');
   $('pageGames').classList.toggle('hidden', !hasRelease || activePage !== 'games');
+  $('pageLists').classList.toggle('hidden', !hasRelease || activePage !== 'lists');
   $('pageTelegram').classList.toggle('hidden', !shellUnlocked || activePage !== 'telegram');
   $('pageSettings').classList.toggle('hidden', !hasRelease || activePage !== 'settings');
 
@@ -3151,6 +3153,166 @@ autoUpdateToggle.onclick = async () => {
     showToast(res.error || 'Не удалось изменить автопроверку обновлений', 'error');
   }
 };
+
+// ─────────── Списки ───────────
+//
+// Что обход трогает, а что нет, — словами, а не файлами. И «Проверить сайт»:
+// почему он открывается или нет, и какой кнопкой это поправить.
+
+async function loadListsPage() {
+  const o = await callSafe(window.zapret.listsOverview());
+  if (!o || !o.lists) {
+    $('listsInclude').innerHTML = `<div class="no-results">${esc((o && o.error) || 'Не удалось прочитать списки')}</div>`;
+    $('listsExclude').innerHTML = '';
+    return;
+  }
+  const adv = isAdvanced();
+  const row = (l) => {
+    const unit = l.ips
+      ? plural(l.count, 'адрес или сеть', 'адреса или сети', 'адресов и сетей')
+      : plural(l.count, 'сайт', 'сайта', 'сайтов');
+    let val = l.exists ? `${l.count} ${unit}` : 'нет файла';
+    if (l.file === 'ipset-all.txt') {
+      val += ` · ${IPSET_LABELS[o.ipsetMode] || o.ipsetMode}`;
+      if (o.gameNets) val += ` · игр: ${o.gameNets}`;
+    }
+    // Правка своих списков и режим IPSet живут в «Сети и фильтрах» — это
+    // продвинутый режим. В простом хватает «Проверить сайт» с его кнопками.
+    const edit = !adv
+      ? ''
+      : l.user && !l.ips
+      ? '<button class="btn ghost xs" data-edit-lists>Изменить</button>'
+      : l.file === 'ipset-all.txt'
+      ? '<button class="btn ghost xs" data-ipset-mode>Режим</button>'
+      : '';
+    const open = adv && l.exists ? `<button class="btn ghost xs" data-open-list="${esc(l.file)}">Открыть</button>` : '';
+    return `
+      <div class="srow">
+        <div class="srow-text">
+          <div class="srow-title">${esc(l.title)}</div>
+          <div class="srow-desc">${esc(l.desc)}</div>
+        </div>
+        <div class="srow-ctl"><span class="srow-val">${esc(val)}</span>${edit}${open}</div>
+      </div>`;
+  };
+  $('listsInclude').innerHTML = o.lists.filter((l) => !l.exclude).map(row).join('');
+  $('listsExclude').innerHTML = o.lists.filter((l) => l.exclude).map(row).join('');
+}
+
+function goToListsEditor() {
+  switchPage('settings');
+  if ($('listsEditor').classList.contains('hidden')) $('listsToggleBtn').click();
+  requestAnimationFrame(() => $('listsEditor').scrollIntoView({ block: 'center', behavior: 'smooth' }));
+}
+
+$('pageLists').addEventListener('click', async (e) => {
+  const open = e.target.closest('[data-open-list]');
+  if (open) {
+    const res = await callSafe(window.zapret.openListFile(open.dataset.openList));
+    if (res && res.ok === false) showToast(res.error || 'Не удалось открыть файл', 'error');
+    return;
+  }
+  if (e.target.closest('[data-edit-lists]')) {
+    goToListsEditor();
+    return;
+  }
+  if (e.target.closest('[data-ipset-mode]')) {
+    switchPage('settings');
+    requestAnimationFrame(() => scrollToCard('settingsNetworkCard'));
+  }
+});
+
+let lastSiteCheck = null;
+
+async function runSiteCheck() {
+  const input = $('siteCheckInput').value.trim();
+  if (!input) return;
+  const btn = $('siteCheckBtn');
+  btn.disabled = true;
+  btn.textContent = 'Проверяю…';
+  $('siteCheckResult').classList.remove('hidden');
+  $('siteVerdict').textContent = 'Проверяю — несколько секунд…';
+  $('siteAdvice').textContent = 'Смотрю списки, правила текущего конфига и открывается ли сайт.';
+  $('siteRows').innerHTML = '';
+  $('siteActions').innerHTML = '';
+  const r = await callSafe(window.zapret.checkSite(input));
+  btn.disabled = false;
+  btn.textContent = 'Проверить';
+  renderSiteCheck(r);
+}
+
+function renderSiteCheck(r) {
+  lastSiteCheck = r;
+  if (!r.ok) {
+    $('siteVerdict').textContent = 'Проверить не удалось';
+    $('siteAdvice').textContent = r.error || '';
+    return;
+  }
+  $('siteVerdict').textContent = `${r.host}: ${r.verdict}`;
+  $('siteAdvice').textContent = r.advice;
+  const rows = [
+    reconRow(r.inLists.length ? true : null, 'Списки для обхода', r.inLists.length ? r.inLists.join(', ') : 'ни в одном'),
+  ];
+  if (r.excludedBy.length) rows.push(reconRow(false, 'Не трогать', r.excludedBy.join(', ')));
+  rows.push(
+    reconRow(r.ipInIpset ? true : null, 'Адрес в IPSet', r.ip ? `${r.ip} — ${r.ipInIpset ? 'есть' : 'нет'}` : 'адрес не определился')
+  );
+  rows.push(
+    reconRow(
+      r.rule ? true : null,
+      'Правило конфига',
+      r.rule || (r.config ? `в ${displayName(r.config)} ни одно правило его не ловит` : 'конфиг не выбран')
+    )
+  );
+  if (r.reach) {
+    // Коротко — вердикт; подробное объяснение повторяло его же словами, оно в подсказке.
+    const now = r.reach.ok ? `открывается · ${r.reach.ms} мс` : PATH_LABEL[r.reach.verdict] || 'не отвечает';
+    rows.push(reconRow(r.reach.ok, 'Сейчас', now));
+  }
+  $('siteRows').innerHTML = rows.join('');
+  const nowRow = $('siteRows').lastElementChild;
+  if (r.reach && !r.reach.ok && r.reach.why && nowRow) nowRow.title = r.reach.why;
+
+  const actions = [];
+  if (r.canAdd) actions.push('<button class="btn primary sm" data-site="add">Добавить в обход</button>');
+  if (r.canUnexclude) actions.push('<button class="btn primary sm" data-site="unexclude">Убрать из «не трогать»</button>');
+  // Обратное тоже бывает нужно: сайт под обходом работает хуже, чем без него.
+  if (!r.excludedBy.length && !r.canAdd && r.rule) {
+    actions.push('<button class="btn ghost sm" data-site="exclude">Не трогать этот сайт</button>');
+  }
+  $('siteActions').innerHTML = actions.join('');
+}
+
+$('siteCheckBtn').onclick = runSiteCheck;
+$('siteCheckInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') runSiteCheck();
+});
+
+$('siteActions').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-site]');
+  if (!b || !lastSiteCheck) return;
+  const host = lastSiteCheck.host;
+  const kind = b.dataset.site;
+  b.disabled = true;
+  const res = await callSafe(
+    kind === 'unexclude' ? window.zapret.unexcludeSite(host) : window.zapret.addSite(host, kind === 'exclude')
+  );
+  if (res && res.ok === false) {
+    b.disabled = false;
+    showToast('Не удалось изменить списки', 'error', { body: res.error });
+    return;
+  }
+  const title =
+    kind === 'add'
+      ? `${host} — в обходе`
+      : kind === 'exclude'
+      ? `${host} — обход больше не трогает`
+      : `${host} убран из «не трогать»`;
+  toastWithRestart(title, '');
+  loadListsPage();
+  loadCustomLists();
+  runSiteCheck();
+});
 
 // ─────────── Настройки: свои списки ───────────
 

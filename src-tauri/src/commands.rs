@@ -1894,6 +1894,59 @@ pub fn check_bypass_chance(state: State<AppState>) -> BypassChance {
     bypass_chance(&state)
 }
 
+// ─────────── Списки ───────────
+
+#[tauri::command(async)]
+pub fn lists_overview(state: State<AppState>) -> Result<crate::lists::Overview, String> {
+    root_of(&state).map(|r| crate::lists::overview(&r)).ok_or_else(|| "Сначала загрузи релиз zapret.".into())
+}
+
+// Команда — в bg.rs: там тело уходит в пул блокирующих задач (сеть).
+pub fn check_site(state: State<AppState>, host: String) -> crate::lists::SiteCheck {
+    let Some(root) = root_of(&state) else {
+        return crate::lists::SiteCheck::failed(&host, "Сначала загрузи релиз zapret.");
+    };
+    // Конфиг берём и при выключенном обходе: тогда видно, какое правило
+    // поймает сайт, когда обход включат.
+    let active = state.persisted.lock().unwrap().active_config.clone();
+    crate::lists::check(&root, active.as_deref(), winws::is_winws_running(), &host)
+}
+
+#[tauri::command(async)]
+pub fn add_site(state: State<AppState>, host: String, exclude: bool) -> SimpleResult {
+    match root_of(&state) {
+        Some(root) => match crate::lists::add(&root, &host, exclude) {
+            Ok(_) => ok(),
+            Err(e) => err(e),
+        },
+        None => err("Сначала загрузи релиз zapret."),
+    }
+}
+
+#[tauri::command(async)]
+pub fn unexclude_site(state: State<AppState>, host: String) -> SimpleResult {
+    match root_of(&state) {
+        Some(root) => match crate::lists::unexclude(&root, &host) {
+            Ok(_) => ok(),
+            Err(e) => err(e),
+        },
+        None => err("Сначала загрузи релиз zapret."),
+    }
+}
+
+/// Открывает файл списка — только из известных, чтобы окно не могло открыть
+/// что угодно по пути.
+#[tauri::command(async)]
+pub fn open_list_file(state: State<AppState>, file: String) -> SimpleResult {
+    if !crate::lists::KNOWN.iter().any(|k| k.file == file) {
+        return err("Неизвестный список.");
+    }
+    match root_of(&state) {
+        Some(root) => open_path(&root.join("lists").join(&file)),
+        None => err("Сначала загрузи релиз zapret."),
+    }
+}
+
 // ─────────── Как у меня режут ───────────
 
 /// Не идёт ли сеть через VPN или прокси — перед тестами и разведкой.

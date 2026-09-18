@@ -123,6 +123,11 @@ pub async fn download_latest_release(app: AppHandle) -> c::DownloadResult {
     blocking(move || c::download_latest_release(app.clone(), app.state())).await
 }
 
+#[tauri::command]
+pub async fn check_site(app: AppHandle, host: String) -> crate::lists::SiteCheck {
+    blocking(move || c::check_site(app.state(), host)).await
+}
+
 // ─────────── hosts ───────────
 
 #[tauri::command]
