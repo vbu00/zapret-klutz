@@ -1097,7 +1097,12 @@ function openRowMenu(anchor, name, isActive) {
   menu.className = 'menu';
 
   const items = [];
-  if (!isActive) {
+  // Во время прогона скрипт тестов сам поднимает и гасит winws под каждый
+  // конфиг. Кнопка «Включить» в это время заблокирована, а меню — нет, и
+  // запуск отсюда посреди прогона ломал тесты.
+  if (testing) {
+    items.push({ label: 'Идёт прогон тестов — дождись окончания', disabled: true });
+  } else if (!isActive) {
     items.push({ label: 'Запустить разово', fn: () => applyConfig(name, false) });
     items.push({ label: 'Установить службой', fn: () => applyConfig(name, true) });
   } else {
@@ -1109,12 +1114,14 @@ function openRowMenu(anchor, name, isActive) {
 
   for (const it of items) {
     const el = document.createElement('div');
-    el.className = 'menu-item' + (it.danger ? ' danger' : '');
+    el.className = 'menu-item' + (it.danger ? ' danger' : '') + (it.disabled ? ' disabled' : '');
     el.textContent = it.label;
-    el.onclick = () => {
-      closeMenus();
-      it.fn();
-    };
+    if (!it.disabled) {
+      el.onclick = () => {
+        closeMenus();
+        it.fn();
+      };
+    }
     menu.appendChild(el);
   }
 
@@ -1173,7 +1180,8 @@ function renderConfigList() {
           ? `<span class="cfg-tag on">${currentState.installedAsService ? 'служба Windows' : 'запущен разово'}</span>`
           : '';
 
-        const testedRow = lastResultsCache?.rows.find((r) => r.config === name);
+        const bareName = name.replace(/\.bat$/i, '');
+        const testedRow = lastResultsCache?.rows.find((r) => r.config.replace(/\.bat$/i, '') === bareName);
         const verdict = testedRow
           ? (() => {
               const score = verdictFor(testedRow, lastResultsCache.mode).score;
@@ -1235,6 +1243,9 @@ function renderGroupChips() {
     const g = deriveGroup(name);
     counts.set(g, (counts.get(g) || 0) + 1);
   }
+  // Семейства из прежнего релиза в новом может не быть — тогда фильтр по нему
+  // оставлял пустой список без единого подсвеченного чипа.
+  if (groupFilter && !counts.has(groupFilter)) groupFilter = null;
   // Без «· N»: количество и так стоит в заголовке каждой группы ниже, а в
   // чипе оно делало ряд длинным и пёстрым.
   const chips = [{ label: 'Все', value: null }, ...[...counts.keys()].map((g) => ({ label: g, value: g }))];
@@ -2109,11 +2120,18 @@ async function runAllTests(opts = {}) {
   // прогоняет DPI по всем конфигам, отбирает прошедших на 100% и скармливает
   // их номера скрипту вторым прогоном. Сюда возвращается уже итог.
   const off = window.zapret.onTestLog(appendLog);
-  const res = opts.trial
-    ? await window.zapret.trialLatestRelease()
-    : await window.zapret.runTests({ mode: testMode });
-  off();
-  finish();
+  let res;
+  try {
+    res = opts.trial ? await window.zapret.trialLatestRelease() : await window.zapret.runTests({ mode: testMode });
+  } catch (e) {
+    // Вызов мог не вернуться ответом, а упасть. Раньше finish() тогда не
+    // выполнялся, и окно навсегда оставалось в «Подбираю» с заблокированными
+    // кнопками — до перезапуска Klutz.
+    res = { ok: false, error: `Прогон прервался: ${(e && e.message) || e}` };
+  } finally {
+    off();
+    finish();
+  }
 
   if (!res.ok) {
     fail(res.error);

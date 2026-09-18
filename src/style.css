@@ -1343,6 +1343,8 @@ html[data-theme="dark"] .menu { box-shadow: 0 16px 40px -12px rgba(0,0,0,.7); }
 }
 .menu-item:hover { background: var(--pill); color: var(--tx); }
 .menu-item.danger { color: var(--red); }
+.menu-item.disabled { color: var(--tx-4); cursor: default; }
+.menu-item.disabled:hover { background: transparent; color: var(--tx-4); }
 
 .no-results { padding: 30px; text-align: center; font-size: 14.5px; color: var(--tx-5); }
 
