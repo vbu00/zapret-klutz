@@ -698,7 +698,10 @@
             Если что-то сломано — предложит исправить одной кнопкой.
           </div>
           <div id="diagResults" class="diag-results"></div>
-          <div class="diag-foot hidden" id="diagFoot">
+          <!-- Видна всегда: кнопки отчёта сами запускают проверку, если её
+               ещё не было. Раньше полоса пряталась до «Проверить систему», и
+               отчёт для разработчика было не найти. -->
+          <div class="diag-foot" id="diagFoot">
             <span>Отчёт без личного — ни списков доменов, ни адресов игр, ни секрета Telegram. Приложи его к вопросу или issue</span>
             <button class="btn ghost xs" id="saveDiagBtn">Сохранить в файл</button>
             <button class="btn ghost xs" id="copyDiagBtn">Скопировать отчёт</button>
@@ -1176,6 +1179,10 @@
             <button class="maint-tile" id="reconTileBtn">
               <span class="mt-title">Как у меня режут</span>
               <span class="mt-desc">Без обхода: DNS, адрес, имя или объём — и поможет ли zapret.</span>
+            </button>
+            <button class="maint-tile" id="devReportTileBtn">
+              <span class="mt-title">Отчёт для разработчика</span>
+              <span class="mt-desc">Версии, стратегия, фильтры и итоги тестов — скопировать или сохранить файлом.</span>
             </button>
             <button class="maint-tile" id="checkUpdatesBtn">
               <span class="mt-title">Проверить обновления Zapret</span>

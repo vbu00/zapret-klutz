@@ -3753,6 +3753,11 @@ async function runRecon() {
 }
 
 $('reconBtn').onclick = runRecon;
+// Кнопки отчёта живут внизу «Диагностики» — плитка ведёт прямо к ним.
+$('devReportTileBtn').onclick = () => {
+  switchPage('diagnostics');
+  requestAnimationFrame(() => $('diagFoot').scrollIntoView({ block: 'center', behavior: 'smooth' }));
+};
 $('reconTileBtn').onclick = () => {
   switchPage('diagnostics');
   runRecon();
