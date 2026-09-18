@@ -2731,7 +2731,12 @@ async function loadTgwsproxyAutostart() {
 tgwsproxyAutostartToggle.onclick = async () => {
   const enabled = !tgwsproxyAutostartToggle.classList.contains('on');
   tgwsproxyAutostartToggle.classList.toggle('on', enabled);
-  await window.zapret.setTgwsproxyAutostart(enabled);
+  const res = await callSafe(window.zapret.setTgwsproxyAutostart(enabled));
+  // Тумблер переключается сразу — не сохранилось, значит вернуть как было.
+  if (res && res.ok === false) {
+    tgwsproxyAutostartToggle.classList.toggle('on', !enabled);
+    showToast('Не удалось сохранить', 'error', { body: res.error });
+  }
 };
 
 async function loadTgwsproxyStatus() {
@@ -2778,14 +2783,16 @@ tgwsproxyToggle.onclick = async () => {
   const turningOn = !tgwsproxyToggle.classList.contains('on');
   tgwsproxyBusy = true;
 
+  // callSafe: иначе упавший вызов оставлял tgwsproxyBusy навсегда, и тумблер
+  // с «Перезапустить» переставали отвечать до перезапуска Klutz.
   if (!turningOn) {
-    await window.zapret.stopTgwsproxy();
+    await callSafe(window.zapret.stopTgwsproxy());
     tgwsproxyBusy = false;
     loadTgwsproxyStatus();
     return;
   }
 
-  const startRes = await window.zapret.startTgwsproxy();
+  const startRes = await callSafe(window.zapret.startTgwsproxy());
   tgwsproxyBusy = false;
   if (!startRes.ok) {
     showToast(startRes.error || 'Не удалось запустить TgWsProxy', 'error');
@@ -2799,7 +2806,7 @@ tgwsproxyToggle.onclick = async () => {
 $('tgwsproxyRestartBtn').onclick = async () => {
   if (tgwsproxyBusy) return;
   tgwsproxyBusy = true;
-  const res = await window.zapret.restartTgwsproxy();
+  const res = await callSafe(window.zapret.restartTgwsproxy());
   tgwsproxyBusy = false;
   if (!res.ok) showToast(res.error || 'Не удалось перезапустить', 'error');
   else showToast('TgWsProxy перезапущен', 'success');
@@ -2808,13 +2815,13 @@ $('tgwsproxyRestartBtn').onclick = async () => {
 
 openTgLinkBtn.onclick = async () => {
   wizardTgLinkClicked = true;
-  const res = await window.zapret.openTgProxyLink();
+  const res = await callSafe(window.zapret.openTgProxyLink());
   if (!res.ok) showToast(res.error || 'Не удалось открыть ссылку', 'error');
 };
 
 $('copyTgLinkBtn').onclick = async () => {
-  await window.zapret.getTgwsproxySettings(); // ensures secret/defaults exist even before the first start
-  const status = await window.zapret.getTgwsproxyStatus();
+  await callSafe(window.zapret.getTgwsproxySettings()); // ensures secret/defaults exist even before the first start
+  const status = await callSafe(window.zapret.getTgwsproxyStatus());
   if (!status.tgProxyUrl) {
     showToast('Не удалось получить ссылку', 'error');
     return;
@@ -2832,6 +2839,12 @@ $('copyTgLinkBtn').onclick = async () => {
 // Fields are always visible on this page now (Главная owns the on/off
 // switch) — this just (re)populates them from whatever's actually saved,
 // on page load and as "Отменить правки".
+// Что сейчас сохранено — чтобы после «Сохранить» понять, изменилась ли ссылка
+// tg://proxy (адрес, порт, секрет), и сказать, что её надо добавить заново.
+let tgSaved = null;
+const tgLinkKey = (host, port, secret) =>
+  `${String(host).trim()}:${Number(port)}:${String(secret).trim().toLowerCase().replace(/^dd(?=[0-9a-f]{32}$)/, '')}`;
+
 async function openTgwsproxySettings() {
   const s = await window.zapret.getTgwsproxySettings();
   $('tgwsproxyHostInput').value = s.host;
@@ -2840,37 +2853,58 @@ async function openTgwsproxySettings() {
   $('tgwsproxyDcArea').value = (s.dcIps || []).join('\n');
   $('tgwsproxyCfToggle').classList.toggle('on', !!s.cfproxy);
   $('tgwsproxySettingsMsg').textContent = '';
+  tgSaved = tgLinkKey(s.host, s.port, s.secret);
 }
 
 
 $('tgwsproxyCfToggle').onclick = () => $('tgwsproxyCfToggle').classList.toggle('on');
 
+// Новый секрет только подставляется в поле — сохраняет его «Сохранить».
 $('regenTgSecretBtn').onclick = async () => {
-  const res = await window.zapret.regenerateTgwsproxySecret();
-  if (res.ok) $('tgwsproxySecretInput').value = res.secret;
+  const res = await callSafe(window.zapret.regenerateTgwsproxySecret());
+  if (!res.ok) return;
+  $('tgwsproxySecretInput').value = res.secret;
+  $('tgwsproxySettingsMsg').textContent =
+    'Новый секрет подставлен. Нажми «Сохранить» — после этого прокси в Telegram придётся добавить заново: старая ссылка перестанет работать.';
 };
 
 $('tgwsproxySaveBtn').onclick = async () => {
   const wasRunning = tgwsproxyToggle.classList.contains('on');
-  const res = await window.zapret.setTgwsproxySettings({
+  const newKey = tgLinkKey($('tgwsproxyHostInput').value, $('tgwsproxyPortInput').value, $('tgwsproxySecretInput').value);
+  const res = await callSafe(window.zapret.setTgwsproxySettings({
     host: $('tgwsproxyHostInput').value,
     port: Number($('tgwsproxyPortInput').value),
     secret: $('tgwsproxySecretInput').value,
     dcIps: $('tgwsproxyDcArea').value,
     cfproxy: $('tgwsproxyCfToggle').classList.contains('on'),
-  });
+  }));
   if (!res.ok) {
     $('tgwsproxySettingsMsg').textContent = res.error || 'Не удалось сохранить';
     return;
   }
-  showToast('Настройки сохранены', 'success');
+  $('tgwsproxySettingsMsg').textContent = '';
+  const linkChanged = tgSaved !== null && newKey !== tgSaved;
+  tgSaved = newKey;
 
+  // Работающий прокси берёт настройки только при запуске. Раньше перезапуск
+  // был по вопросу, и при «нет» прокси продолжал работать со старым секретом,
+  // а ссылка уже была новая. Теперь — сам, и с проверкой, что он поднялся.
   if (wasRunning) {
-    const ok = await showConfirm('Перезапустить TgWsProxy с новыми настройками?');
-    if (ok) {
-      await window.zapret.stopTgwsproxy();
-      await window.zapret.startTgwsproxy();
+    const r = await callSafe(window.zapret.restartTgwsproxy());
+    if (r && r.ok === false) {
+      showToast('Настройки сохранены, но прокси не запустился', 'error', { body: r.error });
+    } else {
+      showToast('Настройки сохранены, прокси перезапущен', 'success');
     }
+  } else {
+    showToast('Настройки сохранены', 'success');
+  }
+  if (linkChanged) {
+    showToast('Ссылка на прокси изменилась', 'info', {
+      body: 'В Telegram прокси нужно добавить заново — старая ссылка больше не подходит.',
+      actionLabel: 'Открыть в Telegram',
+      onAction: () => openTgLinkBtn.click(),
+    });
   }
   loadTgwsproxyStatus();
 };

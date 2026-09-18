@@ -1380,17 +1380,15 @@ pub struct SecretResult {
     secret: String,
 }
 
+/// Только предлагает новый секрет — сохраняет его «Сохранить».
+///
+/// Раньше секрет сохранялся сразу, хотя кнопка стоит рядом с полем, которое
+/// потом надо сохранять. Работающий прокси продолжал принимать старый секрет,
+/// а «Скопировать ссылку» и «Открыть» уже отдавали новый: человек добавлял в
+/// Telegram ссылку, которую прокси отвергал, и отменить это было нельзя.
 #[tauri::command(async)]
-pub fn regenerate_tgwsproxy_secret(app: AppHandle, state: State<AppState>) -> SecretResult {
-    let secret = crate::tgws::random_secret();
-    {
-        let mut p = state.persisted.lock().unwrap();
-        let mut s = p.tgws.clone().unwrap_or_default();
-        s.secret = secret.clone();
-        p.tgws = Some(s);
-    }
-    save_state(&app, &state);
-    SecretResult { ok: true, secret }
+pub fn regenerate_tgwsproxy_secret() -> SecretResult {
+    SecretResult { ok: true, secret: crate::tgws::random_secret() }
 }
 
 #[tauri::command(async)]
