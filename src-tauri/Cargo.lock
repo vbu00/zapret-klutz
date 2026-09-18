@@ -2048,7 +2048,7 @@ dependencies = [
 
 [[package]]
 name = "klutz"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "notify-rust",
  "once_cell",
