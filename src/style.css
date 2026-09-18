@@ -2098,8 +2098,14 @@ html[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,.62); }
   box-shadow: var(--shadow);
 }
 .modal-card p { margin: 0 0 18px; font-size: 14.5px; line-height: 1.6; color: var(--tx-2); }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Перенос — страховка: без него кнопки, не влезшие в строку, вылезали за
+   левый край карточки (так было в окне «Вышел Klutz» с тремя кнопками). */
+.modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.modal-actions .btn { white-space: nowrap; }
 .modal-card.wide { width: 440px; }
+/* Три кнопки «Позже / Страница релиза / Скачать и установить» — шире
+   обычного, но не шире окна. */
+.modal-card.update-card { width: min(540px, calc(100vw - 32px)); }
 .whats-new-list { max-height: 55vh; overflow-y: auto; margin: 0 0 18px; }
 .whats-new-list h4 { margin: 14px 0 4px; font-size: 13px; font-weight: 600; color: var(--tx-5); }
 .whats-new-list h4:first-child { margin-top: 0; }
