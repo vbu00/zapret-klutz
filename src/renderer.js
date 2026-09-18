@@ -325,10 +325,28 @@ function coreCheck() {
   return { total: core.length, ok: core.filter((t) => t.ok).length, at: src.checkedAt, targets: core };
 }
 
+// Что сейчас держит обход. winws может работать и без конфига из Klutz:
+// службой «zapret», поставленной не отсюда, или .bat, запущенным руками.
+function activeLabel() {
+  if (currentState.activeConfig) return displayName(currentState.activeConfig);
+  return currentState.serviceExists ? 'служба zapret' : 'winws.exe не из Klutz';
+}
+
+// Конфиг из прошлого прогона — среди конфигов ТЕКУЩЕГО релиза. История
+// прогонов хранит и прежние релизы, а варианты можно убрать: раньше
+// «Включить» брало такой конфиг и падало с ошибкой на каждое нажатие.
+function findConfig(name) {
+  if (!name) return null;
+  const bare = (n) => String(n).replace(/\.bat$/i, '').toLowerCase();
+  return (currentState.configs || []).find((c) => bare(c) === bare(name)) || null;
+}
+
 // Пять состояний, как в макете: подбираю → выключен → ничего не пробило →
 // работает частично → работает. Ровно один блок виден за раз.
 function renderHero() {
-  const running = !!(currentState.running && currentState.activeConfig);
+  // По факту работы winws, а не по конфигу из Klutz: иначе при чужой службе
+  // строка состояния говорила «Работает», а Главная — «Выключен».
+  const running = !!currentState.running;
   // Как в макете: верим только проверке, сделанной после запуска текущего
   // конфига. Старая, от прошлого варианта, иначе держала бы «Работает, но…»
   // до следующей проверки.
@@ -361,12 +379,12 @@ function renderHero() {
 
   const variant = currentState.activeConfig || lastTestBest;
   $('statVariant').textContent = variant ? displayName(variant) : 'не подобран';
-  $('statNow').textContent = running ? `${displayName(currentState.activeConfig)} — обход включён` : 'Discord и YouTube напрямую';
-  $('heroStartLabel').textContent = lastTestBest ? 'Включить' : 'Подобрать и включить';
+  $('statNow').textContent = running ? `${activeLabel()} — обход включён` : 'Discord и YouTube напрямую';
+  $('heroStartLabel').textContent = findConfig(lastTestBest) ? 'Включить' : 'Подобрать и включить';
 
   if (state === 'ok') {
     $('heroOkTitle').textContent = check && check.ok === check.total ? 'Discord и YouTube отвечают' : 'Обход включён';
-    $('heroName').textContent = displayName(currentState.activeConfig);
+    $('heroName').textContent = activeLabel();
     $('heroUptime').textContent = formatUptime(currentState.startedAt);
     const when = check ? new Date(check.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : null;
     $('heroHealth').textContent = check ? `${check.ok} из ${check.total} · проверено ${when}` : 'не проверялись';
@@ -375,7 +393,7 @@ function renderHero() {
 
   if (state === 'degraded') {
     const failing = [...new Set(check.targets.filter((t) => !t.ok).map((t) => t.name.split(' ')[0]))];
-    $('heroDegradedName').textContent = displayName(currentState.activeConfig);
+    $('heroDegradedName').textContent = activeLabel();
     $('heroDegradedTitle').textContent = failing.length
       ? `Работает, но ${failing.join(' и ')} не ${failing.length > 1 ? 'отвечают' : 'отвечает'}`
       : 'Работает, но не всё отвечает';
@@ -388,7 +406,7 @@ function renderHero() {
   if (state === 'failed') {
     const note = check ? pathNote(check.targets) : '';
     $('heroFailedSub').textContent =
-      `Сейчас включён лучший из проверенных — ${displayName(currentState.activeConfig)}, но Discord и YouTube ` +
+      `Сейчас включён лучший из проверенных — ${activeLabel()}, но Discord и YouTube ` +
       'не отвечают. ' + (note || 'Иногда помогает соседний вариант или перезапуск через минуту.');
     renderHeroAlternatives();
   }
@@ -398,7 +416,7 @@ function renderHero() {
 // Состояния те же самые (picking/idle/failed/degraded/ok), просто показаны
 // одним блоком, а вокруг кнопки крутятся ореолы под текущее состояние.
 function renderSimpleHero(state, check, running) {
-  const activeName = displayName(currentState.activeConfig);
+  const activeName = activeLabel();
   const live = running && state !== 'picking';
 
   $('heroSimple').classList.toggle('ok', state === 'ok');
@@ -453,7 +471,7 @@ function renderSimpleHero(state, check, running) {
       : state === 'degraded'
       ? `Включён ${activeName}, отвечают ${check.ok} из ${check.total} целей. ` +
         (note || 'Попробуйте подобрать другой вариант.')
-      : lastTestBest
+      : findConfig(lastTestBest)
       ? `Включится последний рабочий вариант — ${displayName(lastTestBest)}. Пара секунд, без подбора.`
       : 'Klutz проверит варианты обхода и включит тот, с которым Discord и YouTube откроются. Займёт пару минут.';
 
@@ -623,7 +641,7 @@ $('heroStartBtn').onclick = async (e) => {
   const btn = e.currentTarget;
   btn.disabled = true;
   const res = await window.zapret.getLastTestResults();
-  const best = res.ok ? parseResults(res.text).best : null;
+  const best = res.ok ? findConfig(parseResults(res.text).best) : null;
   if (best) {
     const applied = await applyConfig(best, false, true);
     btn.disabled = false;
@@ -654,18 +672,19 @@ $('heroAltBtn').onclick = () => {
 $('simpleCircle').onclick = () => {
   if (testing || launching) return;
   if (currentState.running) stopActive();
-  else if (lastTestBest) applyBestFromSimple();
+  else if (findConfig(lastTestBest)) applyBestFromSimple();
   else runAllTests({ autoApply: true });
 };
 
 async function applyBestFromSimple() {
+  const name = findConfig(lastTestBest);
   launching = true;
   renderHero();
   setTimeout(() => {
     launching = false;
     renderHero();
   }, 700);
-  if (await applyConfig(lastTestBest, false, true)) await verifyAppliedAndToast(lastTestBest);
+  if (await applyConfig(name, false, true)) await verifyAppliedAndToast(name);
 }
 
 $('simpleCancelBtn').onclick = () => window.zapret.stopTests();
