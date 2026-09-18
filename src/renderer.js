@@ -98,6 +98,17 @@ function showToast(title, type = 'info', opts = {}) {
   }, 4200);
 }
 
+// Вызов команды, который не бросает: упавшая команда или мост возвращается
+// обычным отказом { ok: false, error }. Обработчики кнопок и так умеют его
+// показать и вернуть кнопку — а исключение до этой ветки не доходило, и
+// кнопка с «Проверяю…» оставалась заблокированной до перезапуска Klutz.
+function callSafe(promise) {
+  return Promise.resolve(promise).catch((e) => ({
+    ok: false,
+    error: String((e && e.message) || e || 'неизвестная ошибка'),
+  }));
+}
+
 const confirmOverlay = $('confirmOverlay');
 
 function showConfirm(message) {
@@ -627,7 +638,7 @@ async function ensureNoForeignService(asService) {
 
 async function applyConfig(name, asService, silent) {
   if (!(await ensureNoForeignService(asService))) return false;
-  const res = asService ? await window.zapret.installService(name) : await window.zapret.runConfig(name);
+  const res = await callSafe(asService ? window.zapret.installService(name) : window.zapret.runConfig(name));
   if (!res.ok) {
     showToast(res.error || 'Не удалось запустить', 'error');
     return false;
@@ -640,7 +651,7 @@ async function applyConfig(name, asService, silent) {
 $('heroStartBtn').onclick = async (e) => {
   const btn = e.currentTarget;
   btn.disabled = true;
-  const res = await window.zapret.getLastTestResults();
+  const res = await callSafe(window.zapret.getLastTestResults());
   const best = res.ok ? findConfig(parseResults(res.text).best) : null;
   if (best) {
     const applied = await applyConfig(best, false, true);
@@ -809,9 +820,13 @@ $('aboutUpdateBtn').onclick = async () => {
   const btn = $('aboutUpdateBtn');
   btn.disabled = true;
   btn.textContent = 'Проверяю…';
-  const res = await window.zapret.checkComponentUpdates();
+  const res = await callSafe(window.zapret.checkComponentUpdates());
   btn.disabled = false;
   btn.textContent = 'Проверить обновления';
+  if (!res || !res.klutz) {
+    showToast('Не удалось проверить обновления', 'error', { body: res && res.error });
+    return;
+  }
 
   const show = (el, u) => {
     el.className = '';
@@ -980,7 +995,7 @@ async function showKlutzUpdate(force) {
           ? 'Скачано, запускаю установщик…'
           : `Скачиваю… ${pct}%` + (rel.size ? ` · ${mb((rel.size * pct) / 100)} из ${mb(rel.size)} МБ` : '');
     });
-    const res = await window.zapret.installKlutzUpdate();
+    const res = await callSafe(window.zapret.installKlutzUpdate());
     off();
     if (res && res.ok === false) {
       install.disabled = false;
@@ -1387,12 +1402,17 @@ async function checkTargets() {
   if (knownTargets.length) {
     renderTargets({ targets: knownTargets.map((t) => ({ ...t, pending: true })), pending: true, checkedAt: Date.now() });
   }
-  const data = await window.zapret.checkGames();
+  const data = await callSafe(window.zapret.checkGames());
   btns.forEach((b) => (b.disabled = false));
   if (data.ok) {
     lastCheck = data;
     renderTargets(data);
     if (activePage === 'home') loadOverview();
+  } else {
+    // Строки стояли в «…», пока шла проверка. Не вышло — возвращаем прежний
+    // результат, а не оставляем «…» навсегда.
+    if (lastCheck) renderTargets(lastCheck);
+    $('diagCoreSummary').textContent = 'проверка не удалась';
   }
   return data.ok ? data : null;
 }
@@ -1425,8 +1445,9 @@ async function ensureTargetsLoaded() {
 }
 
 const autoCheckToggle = $('autoCheckToggle');
-autoCheckToggle.onclick = () => {
-  const on = autoCheckToggle.classList.toggle('on');
+const AUTO_CHECK_KEY = 'klutzAutoCheck';
+function setAutoCheck(on) {
+  autoCheckToggle.classList.toggle('on', on);
   if (autoCheckTimer) {
     clearInterval(autoCheckTimer);
     autoCheckTimer = null;
@@ -1436,7 +1457,15 @@ autoCheckToggle.onclick = () => {
       if (activePage === 'diagnostics' || activePage === 'home') checkTargets();
     }, 60000);
   }
-};
+  // Раньше тумблер забывался при каждом перезапуске Klutz.
+  try {
+    localStorage.setItem(AUTO_CHECK_KEY, on ? '1' : '0');
+  } catch {}
+}
+autoCheckToggle.onclick = () => setAutoCheck(!autoCheckToggle.classList.contains('on'));
+try {
+  if (localStorage.getItem(AUTO_CHECK_KEY) === '1') setAutoCheck(true);
+} catch {}
 
 // ─────────── Свои адреса ───────────
 
@@ -3390,7 +3419,7 @@ $('gameGroups').onclick = async (e) => {
         if (!g) return;
         ident.disabled = true;
         ident.textContent = 'Спрашиваю…';
-        const res = await window.zapret.identifyGameGroup(g.nets);
+        const res = await callSafe(window.zapret.identifyGameGroup(g.nets));
         await loadGames();
         if (!res.ok) gameMsg(res.error || 'Не удалось определить оператора.');
         return;
@@ -3629,7 +3658,7 @@ $('saveDiagBtn').onclick = async () => {
     btn.textContent = 'Сохранить в файл';
   }
   if (!lastDiagResults) return;
-  const res = await window.zapret.saveReport(await buildDiagReport(lastDiagResults));
+  const res = await callSafe(window.zapret.saveReport(await buildDiagReport(lastDiagResults)));
   if (res && res.ok === false) showToast(res.error || 'Не удалось сохранить отчёт', 'error');
   else showToast('Отчёт сохранён', 'success', { body: 'Файл открыт — приложи его к вопросу или issue.' });
 };
@@ -3678,9 +3707,15 @@ async function runDiagnosticsAndRender(deep) {
   $('diagHint').classList.add('hidden');
   $('runDiagBtn').disabled = true;
   box.innerHTML = '<div class="diag-row"><span class="dr-icon">·</span><span>Проверяю…</span></div>';
-  const res = await window.zapret.runDiagnostics(deep);
+  const res = await callSafe(window.zapret.runDiagnostics(deep));
   $('runDiagBtn').disabled = false;
   lastDiagResults = res.ok ? res.results : null;
+  if (!res.ok || !res.results) {
+    box.innerHTML = `<div class="diag-row bad"><span class="dr-icon">✗</span><span>Проверка не удалась</span><span class="dr-warn">${esc(
+      res.error || ''
+    )}</span></div>`;
+    return;
+  }
   const bad = res.results.filter((r) => !r.ok).length;
   $('maintenanceMsg2').textContent = bad ? `${bad} из ${res.results.length} проверок с проблемами` : 'всё в порядке';
   $('diagFoot').classList.remove('hidden');
@@ -3700,7 +3735,7 @@ async function runDiagnosticsAndRender(deep) {
     btn.onclick = async () => {
       btn.disabled = true;
       btn.textContent = 'Исправляю…';
-      const fixRes = await window.zapret.fixDiagnostic(btn.dataset.fix);
+      const fixRes = await callSafe(window.zapret.fixDiagnostic(btn.dataset.fix));
       if (!fixRes.ok) {
         showToast(fixRes.error || 'Не удалось исправить', 'error');
         btn.disabled = false;
