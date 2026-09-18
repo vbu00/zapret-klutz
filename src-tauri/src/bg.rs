@@ -131,11 +131,25 @@ pub async fn hosts_status() -> crate::hosts::HostsStatus {
 }
 
 #[tauri::command]
-pub async fn apply_hosts() -> crate::hosts::HostsResult {
-    blocking(crate::hosts::apply).await
+pub async fn apply_hosts(app: AppHandle) -> crate::hosts::HostsResult {
+    blocking(move || {
+        let r = crate::hosts::apply();
+        if r.ok {
+            crate::keep::remember(&app, crate::keep::Wanted::Hosts, true);
+        }
+        r
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn remove_hosts() -> crate::hosts::HostsResult {
-    blocking(crate::hosts::remove).await
+pub async fn remove_hosts(app: AppHandle) -> crate::hosts::HostsResult {
+    blocking(move || {
+        let r = crate::hosts::remove();
+        if r.ok {
+            crate::keep::remember(&app, crate::keep::Wanted::Hosts, false);
+        }
+        r
+    })
+    .await
 }

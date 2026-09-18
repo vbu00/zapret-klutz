@@ -36,6 +36,16 @@ pub struct LatestRelease {
     pub url: String,
     #[serde(rename = "notesUrl")]
     pub notes_url: String,
+    /// SHA-256 архива из ответа GitHub. Нет — сверяем только размер.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+/// Контрольная сумма файла релиза из ответа GitHub: поле `digest` вида
+/// `sha256:<64 hex>`. У старых релизов его нет — тогда `None`.
+pub fn parse_digest(asset: &serde_json::Value) -> Option<String> {
+    let hex = asset.get("digest")?.as_str()?.strip_prefix("sha256:")?.to_ascii_lowercase();
+    (hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex)
 }
 
 pub fn latest_release() -> LatestRelease {
@@ -47,6 +57,7 @@ pub fn latest_release() -> LatestRelease {
         size: 0,
         url: String::new(),
         notes_url: String::new(),
+        sha256: None,
     };
     let text = match curl_text(&format!("https://api.github.com/repos/{REPO}/releases/latest")) {
         Ok(t) => t,
@@ -73,6 +84,7 @@ pub fn latest_release() -> LatestRelease {
         size: asset.get("size").and_then(|t| t.as_u64()).unwrap_or(0),
         url: asset.get("browser_download_url").and_then(|t| t.as_str()).unwrap_or("").to_string(),
         notes_url: v.get("html_url").and_then(|t| t.as_str()).unwrap_or("").to_string(),
+        sha256: parse_digest(asset),
     }
 }
 
@@ -146,7 +158,7 @@ pub fn download_latest(app: &AppHandle) -> Result<PathBuf, String> {
         ));
     }
     let dest = releases_dir(app).join(&info.name);
-    download_file(app, &info.url, &dest, info.size, "download-progress")?;
+    download_file(app, &info.url, &dest, info.size, info.sha256.as_deref(), "download-progress")?;
     Ok(dest)
 }
 
@@ -160,6 +172,7 @@ pub fn download_file(
     url: &str,
     dest: &Path,
     expected_size: u64,
+    sha256: Option<&str>,
     event: &str,
 ) -> Result<(), String> {
     #[allow(unused_mut)]
@@ -223,9 +236,8 @@ pub fn download_file(
         let _ = fs::remove_file(dest);
         return Err("Скачивание не удалось.".into());
     }
-    // Размер известен из ответа API — сверяем. Хэша не публикуется, так что
-    // подмену это не ловит; обрыв и усечение — ловит, а скачанное потом
-    // запускается с правами администратора.
+    // Размер известен из ответа API — сверяем: обрыв и усечение он ловит, а
+    // скачанное потом запускается с правами администратора.
     if expected_size > 0 {
         match fs::metadata(dest) {
             Ok(m) if m.len() == expected_size => {}
@@ -240,6 +252,25 @@ pub fn download_file(
             Err(e) => {
                 let _ = fs::remove_file(dest);
                 return Err(format!("Не удалось проверить скачанный файл: {e}"));
+            }
+        }
+    }
+    // Сумма — если GitHub её дал (поле digest у файла релиза). Размер ловит
+    // обрыв, сумма — ещё и подмену по дороге.
+    if let Some(want) = sha256 {
+        match sys::sha256_file(dest) {
+            Ok(got) if got.eq_ignore_ascii_case(want) => {}
+            Ok(_) => {
+                let _ = fs::remove_file(dest);
+                return Err(
+                    "Контрольная сумма скачанного файла не совпала с опубликованной на GitHub. Файл удалён — \
+                     скачивание было повреждено или подменено."
+                        .into(),
+                );
+            }
+            Err(e) => {
+                let _ = fs::remove_file(dest);
+                return Err(format!("Не удалось проверить контрольную сумму: {e}. Файл удалён."));
             }
         }
     }

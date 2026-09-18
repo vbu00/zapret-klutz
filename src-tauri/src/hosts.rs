@@ -196,6 +196,11 @@ fn write(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Лежит ли наш блок в hosts прямо сейчас.
+pub fn applied() -> bool {
+    read_current().is_ok_and(|c| c.lines().any(|l| l.trim_start().starts_with(BEGIN_PREFIX)))
+}
+
 pub fn status() -> HostsStatus {
     let has_backup = crate::sys::hosts_path().with_file_name(BACKUP).exists();
     let broken = |e: String| HostsStatus {

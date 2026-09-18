@@ -189,10 +189,128 @@ pub fn svc_query(name: &str) -> SvcState {
     SvcState { exists: false, state: None }
 }
 
+/// Запущен ли процесс с таким именем образа.
+///
+/// Снимком процессов Windows, а не запуском tasklist.exe: этот вопрос задают
+/// самолечение, трей и почти каждая кнопка («работает ли winws»), и на каждый
+/// раз уходил отдельный процесс с разбором его вывода. tasklist остался
+/// запасным путём — на случай, если снимок не создался.
+#[cfg(target_os = "windows")]
 pub fn proc_running(image: &str) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return proc_running_tasklist(image);
+        }
+        let mut e: PROCESSENTRY32W = std::mem::zeroed();
+        e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        let mut more = Process32FirstW(snap, &mut e) != 0;
+        while more {
+            let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+            if String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case(image) {
+                found = true;
+                break;
+            }
+            more = Process32NextW(snap, &mut e) != 0;
+        }
+        CloseHandle(snap);
+        found
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn proc_running(image: &str) -> bool {
+    proc_running_tasklist(image)
+}
+
+#[allow(dead_code)]
+fn proc_running_tasklist(image: &str) -> bool {
     run("tasklist", &["/FI", &format!("IMAGENAME eq {image}")])
         .to_lowercase()
         .contains(&image.to_lowercase())
+}
+
+/// SHA-256 файла в шестнадцатеричном виде — средствами Windows (BCrypt),
+/// без сторонних библиотек.
+#[cfg(target_os = "windows")]
+pub fn sha256_file(path: &std::path::Path) -> Result<String, String> {
+    use std::io::Read;
+    use windows_sys::Win32::Security::Cryptography::{
+        BCryptCloseAlgorithmProvider, BCryptCreateHash, BCryptDestroyHash, BCryptFinishHash, BCryptHashData,
+        BCryptOpenAlgorithmProvider, BCRYPT_ALG_HANDLE, BCRYPT_HASH_HANDLE, BCRYPT_SHA256_ALGORITHM,
+    };
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    unsafe {
+        let mut alg: BCRYPT_ALG_HANDLE = std::ptr::null_mut();
+        if BCryptOpenAlgorithmProvider(&mut alg, BCRYPT_SHA256_ALGORITHM, std::ptr::null(), 0) < 0 {
+            return Err("SHA-256 в Windows недоступен".into());
+        }
+        let mut hash: BCRYPT_HASH_HANDLE = std::ptr::null_mut();
+        if BCryptCreateHash(alg, &mut hash, std::ptr::null_mut(), 0, std::ptr::null(), 0, 0) < 0 {
+            BCryptCloseAlgorithmProvider(alg, 0);
+            return Err("не удалось начать подсчёт SHA-256".into());
+        }
+        let mut result: Result<(), String> = Ok(());
+        let mut buf = vec![0u8; 1 << 16];
+        loop {
+            match file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if BCryptHashData(hash, buf.as_ptr(), n as u32, 0) < 0 {
+                        result = Err("сбой при подсчёте SHA-256".into());
+                        break;
+                    }
+                }
+                Err(e) => {
+                    result = Err(e.to_string());
+                    break;
+                }
+            }
+        }
+        let mut out = [0u8; 32];
+        if result.is_ok() && BCryptFinishHash(hash, out.as_mut_ptr(), out.len() as u32, 0) < 0 {
+            result = Err("сбой при подсчёте SHA-256".into());
+        }
+        BCryptDestroyHash(hash);
+        BCryptCloseAlgorithmProvider(alg, 0);
+        result?;
+        Ok(out.iter().map(|b| format!("{b:02x}")).collect())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn sha256_file(_path: &std::path::Path) -> Result<String, String> {
+    Err("SHA-256 считается только в Windows".into())
+}
+
+#[cfg(test)]
+mod proc_and_hash_tests {
+    use super::*;
+
+    #[test]
+    fn свой_процесс_виден_а_чужого_нет() {
+        let me = std::env::current_exe().unwrap();
+        let name = me.file_name().unwrap().to_string_lossy().to_string();
+        assert!(proc_running(&name), "{name}");
+        assert!(proc_running(&name.to_uppercase()), "имя образа сравнивается без регистра");
+        assert!(!proc_running("klutz-такого-процесса-нет.exe"));
+    }
+
+    #[test]
+    fn sha256_как_у_всех() {
+        let p = std::env::temp_dir().join(format!("klutz-sha-{}.txt", std::process::id()));
+        std::fs::write(&p, b"abc").unwrap();
+        assert_eq!(
+            sha256_file(&p).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let _ = std::fs::remove_file(&p);
+    }
 }
 
 /// Какая стратегия прописана у установленной службы zapret.

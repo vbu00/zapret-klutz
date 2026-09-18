@@ -108,15 +108,7 @@ pub fn stop_winws() {
 }
 
 pub fn is_winws_running() -> bool {
-    #[allow(unused_mut)]
-    let mut cmd = Command::new(crate::sys::system_exe("tasklist.exe"));
-    cmd.args(["/FI", "IMAGENAME eq winws.exe"]);
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    match cmd.output() {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).to_lowercase().contains("winws.exe"),
-        Err(_) => false,
-    }
+    crate::sys::proc_running("winws.exe")
 }
 
 const LOG_CAP: usize = 500;

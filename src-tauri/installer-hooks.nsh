@@ -110,6 +110,16 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; /UPDATE — установка поверх, а не удаление: всё, что человек включил,
+  ; должно пережить обновление. Раньше этот хук выполнялся и тогда, и после
+  ; обновления пропадали автозапуск и служба «держать включённым».
+  ${If} $UpdateMode <> 1
+
+  ; Правило брандмауэра «Discord без QUIC» и строки Klutz в hosts убирает сам
+  ; Klutz (keep.rs): логика там, где её можно проверить тестами.
+  nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --cleanup'
+  Pop $R0
+
   ; Автозапуск через Планировщик: иначе после удаления задача остаётся и
   ; при каждом входе пытается запустить несуществующий klutz.exe.
   nsExec::ExecToLog 'schtasks /Delete /TN "Klutz-Autostart" /F'
@@ -144,4 +154,6 @@
     nsExec::ExecToLog 'taskkill /F /IM winws.exe'
     Pop $R0
   klutz_svc_done:
+
+  ${EndIf}
 !macroend

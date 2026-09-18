@@ -54,6 +54,16 @@ pub struct PersistedState {
     /// предложить вернуться, если на новом стало хуже.
     #[serde(rename = "previousRoot")]
     pub previous_root: Option<String>,
+    /// Что человек включил вне папки Klutz — автозапуск, «Discord без QUIC»,
+    /// строки в hosts. Сама система помнит это ненадёжно: деинсталлятор их
+    /// снимает, в том числе при обновлении поверх. `None` — ещё не записано.
+    /// См. keep.rs.
+    #[serde(rename = "autostartWanted")]
+    pub autostart_wanted: Option<bool>,
+    #[serde(rename = "noQuicWanted")]
+    pub no_quic_wanted: Option<bool>,
+    #[serde(rename = "hostsWanted")]
+    pub hosts_wanted: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

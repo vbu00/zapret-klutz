@@ -1082,9 +1082,12 @@ pub fn get_autostart() -> AutostartState {
 }
 
 #[tauri::command(async)]
-pub fn set_autostart(enabled: bool) -> SimpleResult {
+pub fn set_autostart(app: AppHandle, enabled: bool) -> SimpleResult {
     match crate::autostart::set_enabled(enabled) {
-        Ok(()) => ok(),
+        Ok(()) => {
+            crate::keep::remember(&app, crate::keep::Wanted::Autostart, enabled);
+            ok()
+        }
         Err(e) => err(e),
     }
 }
@@ -1421,19 +1424,24 @@ fn open_path(path: &std::path::Path) -> SimpleResult {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn shell_open(target: &str) -> bool {
+    shell_open_with(target, None)
+}
+
+#[cfg(target_os = "windows")]
+fn shell_open_with(target: &str, params: Option<&str>) -> bool {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
     let verb = wide("open");
     let file = wide(target);
+    let params = params.map(wide);
     let res = unsafe {
         ShellExecuteW(
             std::ptr::null_mut(),
             verb.as_ptr(),
             file.as_ptr(),
-            std::ptr::null(),
+            params.as_ref().map_or(std::ptr::null(), |p| p.as_ptr()),
             std::ptr::null(),
             SW_SHOWNORMAL,
         )
@@ -1443,7 +1451,7 @@ fn shell_open(target: &str) -> bool {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn shell_open(_target: &str) -> bool {
+fn shell_open_with(_target: &str, _params: Option<&str>) -> bool {
     false
 }
 
@@ -1705,10 +1713,15 @@ pub fn install_klutz_update(app: AppHandle) -> SimpleResult {
         return err("Неожиданный номер версии в релизе — скачивание отменено.");
     }
     let dest = std::env::temp_dir().join(&name);
-    if let Err(e) = crate::releases::download_file(&app, &url, &dest, rel.size, "klutz-update-progress") {
+    if let Err(e) =
+        crate::releases::download_file(&app, &url, &dest, rel.size, rel.sha256.as_deref(), "klutz-update-progress")
+    {
         return err(e);
     }
-    if !shell_open(&dest.to_string_lossy()) {
+    // /UPDATE — «поставить поверх». Без него установщик предлагал «удалить
+    // перед установкой», и тогда деинсталлятор прежней версии снимал автозапуск
+    // и службу: после обновления они молча пропадали.
+    if !shell_open_with(&dest.to_string_lossy(), Some("/UPDATE")) {
         return err(format!("Установщик скачан, но не запустился. Он лежит тут: {}", dest.display()));
     }
     // Пауза — чтобы окно успело сказать, что происходит, а установщик —
@@ -2417,9 +2430,12 @@ pub fn get_discord_quic() -> crate::quic::QuicStatus {
 }
 
 #[tauri::command(async)]
-pub fn set_discord_quic(enabled: bool) -> SimpleResult {
+pub fn set_discord_quic(app: AppHandle, enabled: bool) -> SimpleResult {
     match crate::quic::set(enabled) {
-        Ok(_) => ok(),
+        Ok(_) => {
+            crate::keep::remember(&app, crate::keep::Wanted::NoQuic, enabled);
+            ok()
+        }
         Err(e) => err(e),
     }
 }

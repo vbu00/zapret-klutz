@@ -123,6 +123,16 @@ fn probe_target(t: &Target) -> TargetResult {
         } else {
             classify_path(main.ok, main.code, None)
         };
+        // Контроль curl-ом с чужим именем обманывается: Cloudflare и Google на
+        // незнакомое имя отвечают отказом в рукопожатии, curl видит ошибку, и
+        // выходило «режут адрес» при живом адресе — а Главная советовала «обход
+        // такое не обходит». Сырое рукопожатие считает ответом любые байты,
+        // отказ тоже. Та же перепроверка, что в разведке.
+        let (verdict, why) = if verdict == PathVerdict::Ip && main.code.needs_control() && t.port == 443 {
+            recheck_ip(&t.host, t.port, &ips).unwrap_or((verdict, why))
+        } else {
+            (verdict, why)
+        };
         // Если имя разрешилось во что-то местное, всё измеренное выше — про
         // туннель, а не про провайдера. Сказать это надо и на успехе:
         // «работает» через чужой туннель не означает, что работает обход.
@@ -167,6 +177,30 @@ fn probe_target(t: &Target) -> TargetResult {
         verdict,
         why: if why.is_empty() { None } else { Some(why) },
     }
+}
+
+/// Перепроверка «режут адрес» сырым ClientHello по IPv4 (curl мог уйти на
+/// IPv6, которого у человека нет). `None` — IPv4-адреса нет, проверять нечем.
+fn recheck_ip(host: &str, port: u16, ips: &[String]) -> Option<(PathVerdict, String)> {
+    use crate::recon::Recheck;
+    let v4 = ips.iter().find_map(|ip| ip.parse::<std::net::Ipv4Addr>().ok())?;
+    let ip = std::net::IpAddr::V4(v4);
+    let timeout = std::time::Duration::from_secs(3);
+    let r = crate::recon::recheck(
+        crate::tlsprobe::send_ch(ip, port, host, false, timeout),
+        crate::tlsprobe::send_ch(ip, port, NEUTRAL_SNI, false, timeout),
+    );
+    Some(match r {
+        Recheck::Name => (
+            PathVerdict::Sni,
+            "на нейтральное имя сервер отвечает рукопожатием, на настоящее — молчит: путь живой, режут по имени".into(),
+        ),
+        Recheck::Open => (
+            PathVerdict::Unknown,
+            "по IPv4 сервер на рукопожатие отвечает — отказ был не от блокировки; возможно, мешает IPv6".into(),
+        ),
+        Recheck::Address(why) => (PathVerdict::Ip, why.to_string()),
+    })
 }
 
 pub fn check_targets(targets: &[Target]) -> Vec<TargetResult> {

@@ -18,6 +18,7 @@ mod favicon;
 mod gamescan;
 mod history;
 mod hosts;
+mod keep;
 mod klutzupdate;
 mod maintenance;
 mod monitor;
@@ -47,6 +48,12 @@ use state::AppState;
 use tauri::{Manager, WindowEvent};
 
 pub fn run() {
+    // Деинсталлятор зовёт `klutz.exe --cleanup` (installer-hooks.nsh): убрать
+    // то, что Klutz оставил вне своей папки. Ни окна, ни трея здесь не нужно.
+    if std::env::args().any(|a| a == "--cleanup") {
+        keep::cleanup();
+        return;
+    }
     tauri::Builder::default()
         // Два процесса Klutz держали бы каждый свою копию «работает ли
         // winws.exe» и расходились бы и друг с другом, и с реальностью.
@@ -68,9 +75,13 @@ pub fn run() {
             tgws::adopt_existing(&handle);
             monitor::start(handle.clone());
             autotest::start(handle.clone());
-            // Discord после обновления переезжает в новую папку, и правило
-            // «без QUIC» к ней уже не относится. netsh небыстрый — в фоне.
-            std::thread::spawn(quic::refresh);
+            // Автозапуск, «Discord без QUIC» и строки hosts: вернуть, если их
+            // снял деинсталлятор, и пересобрать правило QUIC под новую папку
+            // Discord. netsh и schtasks небыстрые — в фоне.
+            {
+                let h = handle.clone();
+                std::thread::spawn(move || keep::reconcile(&h));
+            }
 
             // Автозапуск поднимает приложение свёрнутым в трей: показывать
             // окно при входе в систему никто не просил.
