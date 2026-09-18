@@ -1896,8 +1896,15 @@ function parseResults(text) {
 
   if (!rows.length) return { rows: [], best: null, mode };
 
-  if (mode === 'dpi') rows.sort((a, b) => b.ok - a.ok || a.blocked - b.blocked || a.err - b.err);
-  else rows.sort((a, b) => b.ok - a.ok || b.pingOk - a.pingOk || a.err - b.err);
+  // Ровно тот же порядок, что у rank_desc в Rust (трей, самолечение,
+  // «Включить»): доля ответивших целей, при равенстве — доля удачных пингов,
+  // дальше порядок файла (обе сортировки устойчивые). Раньше здесь были свои
+  // правила ничьей — в DPI «меньше заблокировано», — и после прогона
+  // «применить лучшую» могла включить не тот конфиг, что трей и самолечение
+  // считают лучшим.
+  const score = (r) => verdictFor(r, mode).score;
+  const pingShare = (r) => (r.pingOk + r.pingFail > 0 ? r.pingOk / (r.pingOk + r.pingFail) : 0);
+  rows.sort((a, b) => score(b) - score(a) || (mode === 'dpi' ? 0 : pingShare(b) - pingShare(a)));
 
   // Отметка проверки «как у приложений»: лучший по тестам мог не пройти то,
   // что нужно Discord и YouTube, — тогда первым идёт тот, кто прошёл.

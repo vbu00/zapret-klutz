@@ -260,8 +260,16 @@ pub fn spawn_winws(app: &AppHandle, root: &Path, file_name: &str) -> Result<bool
         // for any release shape, same tradeoff as the Electron fallback.
         #[allow(unused_mut)]
         let mut cmd = Command::new(crate::sys::system_exe("cmd.exe"));
-        cmd.args(["/c", file_name])
-            .current_dir(root)
+        // `cmd /s /c ""имя""`: без /s cmd снимает кавычки, если между ними
+        // есть ( или ) — а они в имени почти каждого конфига Flowseal, — и
+        // «general (ALT).bat» превращался в команду «general» с аргументами.
+        // С /s снимаются только внешние кавычки, внутренние остаются. Имя
+        // уже проверено (checked_config): кавычек в нём нет.
+        #[cfg(target_os = "windows")]
+        cmd.raw_arg(format!("/s /c \"\"{file_name}\"\""));
+        #[cfg(not(target_os = "windows"))]
+        cmd.args(["/c", file_name]);
+        cmd.current_dir(root)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -426,6 +434,8 @@ mod unit_tests {
             }
             let args = extract_winws_args(&root, &name).unwrap_or_else(|| panic!("{name}: не разобрался"));
             assert!(args.iter().all(|a| !a.contains('^')), "{name}: {args:?}");
+            // Неподставленная переменная cmd ушла бы в winws буквально.
+            assert!(args.iter().all(|a| !a.contains('%')), "{name}: {args:?}");
             // «^!» стоит не во всех FAKE TLS AUTO — сверяем по самому файлу.
             if fs::read_to_string(entry.path()).unwrap_or_default().contains("fake-tls=^!") {
                 assert!(args.contains(&"--dpi-desync-fake-tls=!".to_string()), "{name}");
