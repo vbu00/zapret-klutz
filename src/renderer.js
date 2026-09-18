@@ -2471,7 +2471,7 @@ $('persistentToggle').onclick = async () => {
   if (on) {
     const ok = await showConfirm('Снять службу zapret? Обход снова будет работать только пока открыт Klutz.');
     if (!ok) return;
-    const res = await window.zapret.removeService();
+    const res = await callSafe(window.zapret.removeService());
     if (res && res.ok === false) {
       showToast(res.error || 'Не удалось снять службу', 'error');
       loadServiceStatus();
@@ -2480,12 +2480,14 @@ $('persistentToggle').onclick = async () => {
     }
     showToast('Служба снята', 'success');
   } else {
-    const target = currentState.activeConfig || lastTestBest;
+    // Только конфиг текущего релиза: лучший из прошлого прогона мог остаться
+    // от прежнего релиза, и установка службы падала.
+    const target = findConfig(currentState.activeConfig) || findConfig(lastTestBest);
     if (!target) {
       showToast('Сначала подбери рабочий вариант', 'warn', { body: 'Службе нужно знать, какую стратегию держать включённой.' });
       return;
     }
-    const res = await window.zapret.installService(target);
+    const res = await callSafe(window.zapret.installService(target));
     if (!res.ok) {
       showToast(res.error || 'Не удалось установить службу', 'error');
       return;
@@ -2549,20 +2551,31 @@ async function loadAutoSwitch() {
   renderThresholdDesc();
 }
 
+// Тумблеры и сегменты переключаются сразу, до ответа. Раньше ответ не
+// смотрели вовсе: не сохранилось — а на экране уже новое значение.
 async function saveAutoSwitch() {
-  await window.zapret.setAutoSwitch({
-    enabled: autoSwitchToggle.classList.contains('on'),
-    threshold: segValue(thresholdSeg, 'th', 3),
-    intervalSec: segValue(checkIntervalSeg, 'sec', 30),
-  });
+  const res = await callSafe(
+    window.zapret.setAutoSwitch({
+      enabled: autoSwitchToggle.classList.contains('on'),
+      threshold: segValue(thresholdSeg, 'th', 3),
+      intervalSec: segValue(checkIntervalSeg, 'sec', 30),
+    })
+  );
+  const saved = !(res && res.ok === false);
+  if (!saved) {
+    showToast('Не удалось сохранить', 'error', { body: res.error });
+    await loadAutoSwitch();
+  }
   renderThresholdDesc();
   loadOverview();
+  return saved;
 }
 
 autoSwitchToggle.onclick = async () => {
   const on = autoSwitchToggle.classList.toggle('on');
-  await saveAutoSwitch();
-  showToast(on ? 'Автопереключение включено' : 'Автопереключение выключено', 'success');
+  if (await saveAutoSwitch()) {
+    showToast(on ? 'Автопереключение включено' : 'Автопереключение выключено', 'success');
+  }
 };
 
 [thresholdSeg, checkIntervalSeg].forEach((seg) => {
@@ -2600,17 +2613,26 @@ async function loadAutoTestSchedule() {
 async function saveAutoTestSchedule() {
   const active = autoTestIntervalSeg.querySelector('.seg-btn.active');
   const mode = autoTestModeSeg.querySelector('.seg-btn.active');
-  await window.zapret.setAutoTestSchedule({
-    enabled: autoTestToggle.classList.contains('on'),
-    days: Number(active ? active.dataset.days : 7),
-    mode: mode ? mode.dataset.mode : 'standard',
-  });
+  const res = await callSafe(
+    window.zapret.setAutoTestSchedule({
+      enabled: autoTestToggle.classList.contains('on'),
+      days: Number(active ? active.dataset.days : 7),
+      mode: mode ? mode.dataset.mode : 'standard',
+    })
+  );
+  const saved = !(res && res.ok === false);
+  if (!saved) {
+    showToast('Не удалось сохранить', 'error', { body: res.error });
+    await loadAutoTestSchedule();
+  }
+  return saved;
 }
 
 autoTestToggle.onclick = async () => {
   const on = autoTestToggle.classList.toggle('on');
-  await saveAutoTestSchedule();
-  showToast(on ? 'Автопрогон тестов включён' : 'Автопрогон тестов выключен', 'success');
+  if (await saveAutoTestSchedule()) {
+    showToast(on ? 'Автопрогон тестов включён' : 'Автопрогон тестов выключен', 'success');
+  }
 };
 
 [autoTestIntervalSeg, autoTestModeSeg].forEach((seg) => {
@@ -2634,7 +2656,12 @@ async function loadNotifications() {
 
 notifyToggle.onclick = async () => {
   const on = notifyToggle.classList.toggle('on');
-  await window.zapret.setNotifications(on);
+  const res = await callSafe(window.zapret.setNotifications(on));
+  if (res && res.ok === false) {
+    notifyToggle.classList.toggle('on', !on);
+    showToast('Не удалось сохранить', 'error', { body: res.error });
+    return;
+  }
   showToast(on ? 'Уведомления включены' : 'Уведомления выключены', 'success');
 };
 
@@ -3034,10 +3061,51 @@ gameFilterSeg.querySelectorAll('.seg-btn').forEach((b) => {
   };
 });
 
+// Настройка, которую winws читает только при запуске: сказать об этом и,
+// если обход работает, предложить перезапуск — как делает Game Filter.
+function toastWithRestart(title, body, type = 'success') {
+  const running = currentState.running && currentState.activeConfig;
+  const tail = running
+    ? 'Перезапусти обход, чтобы изменение заработало.'
+    : 'Применится при следующем включении обхода.';
+  showToast(title, type, {
+    body: body ? `${body} ${tail}` : tail,
+    ...(running
+      ? {
+          actionLabel: 'Перезапустить',
+          onAction: async () => {
+            if (await applyConfig(currentState.activeConfig, currentState.installedAsService, true)) {
+              showToast('Обход перезапущен', 'success');
+            }
+          },
+        }
+      : {}),
+  });
+}
+
+// Что значит каждый режим. Раньше «Сменить» крутил их по кругу молча, и
+// «любые IP» — тот, что ломает игры, — включался без единого слова.
+const IPSET_MEANING = {
+  loaded: 'Обход трогает только адреса из списка — так задумано по умолчанию.',
+  none: 'Правила «по адресу» не срабатывают: игры и сервисы без имени сайта идут напрямую.',
+  any:
+    'Обход трогает трафик ко ВСЕМ адресам на своих портах. Игры такое переносят плохо — в CS2 рывки, у Valorant ошибка подключения.',
+};
+
 $('ipsetModeBtn').onclick = async () => {
-  const res = await window.zapret.cycleIpsetMode();
-  if (!res.ok) showToast(res.error || 'Не удалось переключить', 'error');
-  loadToggles();
+  const res = await callSafe(window.zapret.cycleIpsetMode());
+  await loadToggles();
+  if (!res.ok) {
+    showToast(res.error || 'Не удалось переключить', 'error');
+    return;
+  }
+  const t = await callSafe(window.zapret.getToggles());
+  const mode = t && t.ipsetMode;
+  toastWithRestart(
+    `IPSet: ${IPSET_LABELS[mode] || mode || 'режим сменён'}`,
+    IPSET_MEANING[mode] || '',
+    mode === 'any' ? 'warn' : 'success'
+  );
 };
 
 // «Discord без QUIC» — правило брандмауэра, а не файл релиза: живёт своей
@@ -3089,6 +3157,8 @@ autoUpdateToggle.onclick = async () => {
 $('listsToggleBtn').onclick = () => {
   const hidden = $('listsEditor').classList.toggle('hidden');
   $('listsToggleBtn').textContent = hidden ? 'Показать' : 'Скрыть';
+  // «Сохранить» при свёрнутом редакторе сохранял то, чего не видно.
+  $('saveListsBtn').classList.toggle('hidden', hidden);
 };
 
 async function loadCustomLists() {
@@ -3099,14 +3169,20 @@ async function loadCustomLists() {
 }
 
 $('saveListsBtn').onclick = async () => {
-  const res = await window.zapret.saveCustomLists({
-    include: $('includeListArea').value,
-    exclude: $('excludeListArea').value,
-  });
-  $('listsMsg').textContent = res.ok
-    ? 'Сохранено. Применится при следующем запуске стратегии.'
-    : `Ошибка: ${res.error}`;
-  if (res.ok) showToast('Списки сохранены', 'success');
+  const res = await callSafe(
+    window.zapret.saveCustomLists({
+      include: $('includeListArea').value,
+      exclude: $('excludeListArea').value,
+    })
+  );
+  if (!res.ok) {
+    $('listsMsg').textContent = `Ошибка: ${res.error}`;
+    return;
+  }
+  $('listsMsg').textContent = '';
+  // Показываем, как записалось: ссылки приведены к доменам.
+  await loadCustomLists();
+  toastWithRestart('Списки сохранены', '');
 };
 
 // ─────────── Настройки: обслуживание ───────────

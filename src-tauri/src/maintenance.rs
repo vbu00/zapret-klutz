@@ -264,13 +264,35 @@ pub fn get_custom_lists(root: &Path) -> CustomLists {
     CustomLists { ok: true, include: read_list(&inc), exclude: read_list(&exc) }
 }
 
+/// Строка списка — к домену. zapret сравнивает имя сайта, и вставленная целиком
+/// ссылка `https://www.youtube.com/watch?v=…` в списке не срабатывала никогда.
+/// Поддомены домен покрывает сам, так что `*.` тоже лишнее. Комментарии
+/// оставляем как есть.
+pub fn clean_domain(line: &str) -> Option<String> {
+    let l = line.trim();
+    if l.is_empty() {
+        return None;
+    }
+    if l.starts_with('#') {
+        return Some(l.to_string());
+    }
+    let l = l.to_lowercase();
+    let l = l.split_once("://").map_or(l.as_str(), |(_, rest)| rest);
+    let l = l.split(['/', '?', '#']).next().unwrap_or("");
+    let l = l.rsplit('@').next().unwrap_or(l);
+    let l = l.split(':').next().unwrap_or(l);
+    let l = l.trim_start_matches("*.").trim_matches('.');
+    (!l.is_empty()).then(|| l.to_string())
+}
+
 pub fn save_custom_lists(root: &Path, include: &str, exclude: &str) -> Result<(), String> {
     let (inc_path, exc_path) = list_paths(root);
     let clean = |t: &str| {
+        let mut seen = std::collections::HashSet::new();
         let body = t
             .lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
+            .filter_map(clean_domain)
+            .filter(|l| seen.insert(l.clone()))
             .collect::<Vec<_>>()
             .join("\n");
         if body.is_empty() { String::new() } else { format!("{body}\n") }
@@ -329,6 +351,17 @@ mod unit_tests {
         ensure_user_lists(&dir);
         assert!(!dir.join("lists").exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn строки_списка_приводятся_к_домену() {
+        assert_eq!(clean_domain("https://www.YouTube.com/watch?v=1").as_deref(), Some("www.youtube.com"));
+        assert_eq!(clean_domain("*.discord.gg").as_deref(), Some("discord.gg"));
+        assert_eq!(clean_domain("example.com:443/path").as_deref(), Some("example.com"));
+        assert_eq!(clean_domain("  rutracker.org.  ").as_deref(), Some("rutracker.org"));
+        assert_eq!(clean_domain("# свой комментарий").as_deref(), Some("# свой комментарий"));
+        assert_eq!(clean_domain("   "), None);
+        assert_eq!(clean_domain("https://"), None);
     }
 
     #[test]
