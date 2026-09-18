@@ -37,7 +37,11 @@
     "windows": {
       "nsis": {
         "installMode": "perMachine",
-        "installerHooks": "./installer-hooks.nsh"
+        "installerHooks": "./installer-hooks.nsh",
+        "languages": ["Russian"],
+        "installerIcon": "./icons/icon.ico",
+        "sidebarImage": "./installer/sidebar.bmp",
+        "headerImage": "./installer/header.bmp"
       }
     }
   }
