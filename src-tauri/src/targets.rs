@@ -64,7 +64,11 @@ pub struct TargetResult {
     pub host: String,
     pub port: u16,
     pub ok: bool,
+    /// Пинг — TCP-рукопожатие (см. `ProbeResult::ms`).
     pub ms: u64,
+    /// Полный ответ сервера — в подсказке рядом с пингом.
+    #[serde(rename = "totalMs")]
+    pub total_ms: u64,
     pub reason: Option<String>,
     /// Каким способом проверяли — в интерфейсе видно, чему верить.
     pub probe: &'static str,
@@ -156,6 +160,7 @@ fn probe_target(t: &Target) -> TargetResult {
         port: t.port,
         ok: r.ok,
         ms: r.ms,
+        total_ms: r.total_ms,
         reason: r.reason,
         probe,
         code: r.code,

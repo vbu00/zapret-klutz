@@ -1256,7 +1256,9 @@ const PATH_LABEL = {
 function verdict(t) {
   if (t.pending) return { cls: 'idle', text: '…' };
   if (!t.ok) return { cls: 'bad', text: PATH_LABEL[t.verdict] || 'Нет связи' };
-  if (t.ms >= 500) return { cls: 'warn', text: 'Медленно' };
+  // Пинг теперь честный — одно TCP-рукопожатие. Прежние 500 мс были порогом
+  // для всего запроса целиком; для пинга 300 — уже заметно медленно.
+  if (t.ms >= 300) return { cls: 'warn', text: 'Медленно' };
   return { cls: '', text: 'ОК' };
 }
 
@@ -1291,8 +1293,14 @@ function pathNote(targets) {
 function targetRow(t) {
   const v = verdict(t);
   const sub = `${t.host}:${t.port}`;
+  const tip = [
+    t.why,
+    t.ok && t.totalMs ? `Пинг — TCP-рукопожатие. Полный ответ сервера: ${t.totalMs} мс` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
   return `
-    <div class="trow"${t.why ? ` title="${esc(t.why)}"` : ''}>
+    <div class="trow"${tip ? ` title="${esc(tip)}"` : ''}>
       <div class="tr-name">
         <span class="tr-dot ${v.cls}"></span><span>${esc(t.name)}</span>
       </div>

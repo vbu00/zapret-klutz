@@ -216,7 +216,13 @@ pub fn classify_path(
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeResult {
     pub ok: bool,
+    /// Пинг: время TCP-рукопожатия, один круг до сервера. Без запуска curl,
+    /// без DNS и без TLS. Раньше здесь стояло время всего запроса от запуска
+    /// curl.exe до выхода — и Discord показывал «197 мс» при пинге в 40.
     pub ms: u64,
+    /// Полный ответ: соединение, TLS и запрос — сколько ждёт приложение.
+    #[serde(rename = "totalMs")]
+    pub total_ms: u64,
     pub reason: Option<String>,
     pub code: FailureCode,
 }
@@ -329,7 +335,15 @@ pub fn http_probe_pinned(host: &str, port: u16, pin_ip: Option<&str>, timeout_se
     // HTTPS_PROXY увёл бы запрос через прокси, и мерили бы мы прокси, а не
     // путь до цели: вердикт «режут по имени» стал бы выдумкой.
     no_proxy(&mut cmd);
-    cmd.args(["-s", "-o", "NUL", "-w", "%{http_code}", "-m", &timeout_sec.to_string()]);
+    cmd.args([
+        "-s",
+        "-o",
+        "NUL",
+        "-w",
+        "%{http_code} %{time_namelookup} %{time_connect} %{time_total}",
+        "-m",
+        &timeout_sec.to_string(),
+    ]);
     if let Some(ip) = pin_ip {
         cmd.args(["--resolve", &format!("{host}:{port}:{ip}")]);
     }
@@ -339,24 +353,45 @@ pub fn http_probe_pinned(host: &str, port: u16, pin_ip: Option<&str>, timeout_se
 
     match cmd.output() {
         Ok(out) => {
-            let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let status = raw.parse::<u16>().ok().filter(|s| *s >= 100);
+            let elapsed = started.elapsed().as_millis() as u64;
+            let (status, rtt, total) = parse_timings(&String::from_utf8_lossy(&out.stdout));
             let exit = out.status.code().unwrap_or(-1);
             let (ok, code) = code_from_curl(exit, status);
             ProbeResult {
                 ok,
-                ms: started.elapsed().as_millis() as u64,
+                ms: rtt.unwrap_or(elapsed),
+                total_ms: total.unwrap_or(elapsed),
                 reason: reason_text(code),
                 code,
             }
         }
-        Err(e) => ProbeResult {
-            ok: false,
-            ms: started.elapsed().as_millis() as u64,
-            reason: Some(e.to_string()),
-            code: FailureCode::Unknown,
-        },
+        Err(e) => {
+            let elapsed = started.elapsed().as_millis() as u64;
+            ProbeResult {
+                ok: false,
+                ms: elapsed,
+                total_ms: elapsed,
+                reason: Some(e.to_string()),
+                code: FailureCode::Unknown,
+            }
+        }
     }
+}
+
+/// Вывод `-w "%{http_code} %{time_namelookup} %{time_connect} %{time_total}"`:
+/// код ответа, пинг и полный ответ в мс. Таймеры curl, а не часы вокруг
+/// процесса: в те попадали запуск curl.exe и то, что все цели проверяются
+/// разом и делят процессор. Пинг — соединение минус DNS; нулевое время
+/// соединения значит, что соединения не было, и пинга нет.
+pub fn parse_timings(raw: &str) -> (Option<u16>, Option<u64>, Option<u64>) {
+    let mut f = raw.split_whitespace();
+    let status = f.next().and_then(|v| v.parse::<u16>().ok()).filter(|s| *s >= 100);
+    let secs = |v: Option<&str>| v.and_then(|v| v.parse::<f64>().ok());
+    let lookup = secs(f.next()).unwrap_or(0.0);
+    let connect = secs(f.next()).filter(|c| *c > 0.0);
+    let total = secs(f.next()).filter(|t| *t > 0.0);
+    let ms = |s: f64| (s * 1000.0).round() as u64;
+    (status, connect.map(|c| ms((c - lookup).max(0.0))), total.map(ms))
 }
 
 /// Сколько байт надо получить, чтобы говорить, что поток пережил окно
@@ -582,12 +617,14 @@ pub fn tcp_probe(host: &str, port: u16, timeout_ms: u64) -> ProbeResult {
     let addr_iter = match (host, port).to_socket_addrs() {
         Ok(it) => it,
         Err(_) => {
+            let elapsed = started.elapsed().as_millis() as u64;
             return ProbeResult {
                 ok: false,
-                ms: started.elapsed().as_millis() as u64,
+                ms: elapsed,
+                total_ms: elapsed,
                 reason: Some("dns".into()),
                 code: FailureCode::Dns,
-            }
+            };
         }
     };
     // Бюджет один на весь вызов. Раньше таймаут отсчитывался заново для
@@ -604,11 +641,16 @@ pub fn tcp_probe(host: &str, port: u16, timeout_ms: u64) -> ProbeResult {
         if left.is_zero() {
             break;
         }
+        // Пинг — только само соединение с ответившим адресом. Раньше часы
+        // шли с начала вызова, и в «пинг» попадали DNS и адреса, которые
+        // перед этим не ответили.
+        let attempt = Instant::now();
         match TcpStream::connect_timeout(&addr, left) {
             Ok(_) => {
                 return ProbeResult {
                     ok: true,
-                    ms: started.elapsed().as_millis() as u64,
+                    ms: attempt.elapsed().as_millis() as u64,
+                    total_ms: started.elapsed().as_millis() as u64,
                     reason: None,
                     code: FailureCode::Ok,
                 }
@@ -618,9 +660,11 @@ pub fn tcp_probe(host: &str, port: u16, timeout_ms: u64) -> ProbeResult {
         }
     }
     let code = if refused { FailureCode::TcpRefused } else { FailureCode::Timeout };
+    let elapsed = started.elapsed().as_millis() as u64;
     ProbeResult {
         ok: false,
-        ms: started.elapsed().as_millis() as u64,
+        ms: elapsed,
+        total_ms: elapsed,
         reason: Some(code.as_str().to_string()),
         code,
     }
@@ -629,6 +673,20 @@ pub fn tcp_probe(host: &str, port: u16, timeout_ms: u64) -> ProbeResult {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+
+    #[test]
+    fn пинг_это_соединение_а_не_весь_запрос() {
+        // Живые цифры: соединение 45 мс, DNS 3 мс, весь запрос 197 мс.
+        let (status, rtt, total) = parse_timings("404 0.003120 0.048210 0.197400");
+        assert_eq!(status, Some(404));
+        assert_eq!(rtt, Some(45));
+        assert_eq!(total, Some(197));
+        // С --resolve DNS нулевой — пинг равен соединению.
+        assert_eq!(parse_timings("200 0.000000 0.041000 0.150000").1, Some(41));
+        // Соединения не было — пинга нет, код тоже.
+        assert_eq!(parse_timings("000 0.002000 0.000000 4.001000"), (None, None, Some(4001)));
+        assert_eq!(parse_timings(""), (None, None, None));
+    }
 
     #[test]
     fn контроль_отвечает_значит_режут_имя() {

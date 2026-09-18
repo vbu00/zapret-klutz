@@ -503,6 +503,7 @@ mod unit_tests {
             port: 443,
             ok,
             ms: 1,
+            total_ms: 1,
             reason: None,
             probe: "http",
             code: if ok { crate::probe::FailureCode::Ok } else { crate::probe::FailureCode::TlsFailed },
