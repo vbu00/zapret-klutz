@@ -414,7 +414,7 @@ fn attempt_switch(app: &AppHandle) {
 /// Без замка два вызова поднимали по своему winws, а `active_config`
 /// доставался тому, кто записал последним, — показанная стратегия и
 /// работающая расходились.
-static APPLY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static APPLY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn apply_config(app: &AppHandle, name: &str) -> Result<(), String> {
     let _guard = APPLY_LOCK.lock().unwrap_or_else(|e| e.into_inner());

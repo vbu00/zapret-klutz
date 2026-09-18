@@ -99,7 +99,8 @@ const PLACEHOLDERS: &[&str] = &["domain.example.abc", "203.0.113.113/32"];
 
 pub fn entries(text: &str) -> Vec<String> {
     text.lines()
-        .map(|l| l.trim().to_lowercase())
+        // BOM от Блокнота в начале файла — не часть первой записи.
+        .map(|l| l.trim().trim_start_matches('\u{feff}').trim().to_lowercase())
         .filter(|l| !l.is_empty() && !l.starts_with('#') && !PLACEHOLDERS.contains(&l.as_str()))
         .collect()
 }
@@ -563,6 +564,11 @@ mod unit_tests {
         assert!(net_contains("2606:4700::/32", v6));
         assert!(!net_contains("2606:4700::/32", ip));
         assert!(!net_contains("мусор", ip));
+    }
+
+    #[test]
+    fn bom_блокнота_не_часть_записи() {
+        assert_eq!(entries("\u{feff}Discord.com\r\n# c\r\ndomain.example.abc\r\n"), vec!["discord.com"]);
     }
 
     #[test]

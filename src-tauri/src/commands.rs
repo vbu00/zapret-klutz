@@ -317,6 +317,12 @@ pub fn run_config(app: AppHandle, state: State<AppState>, file_name: String) -> 
         };
     }
 
+    // Тот же замок, что у самолечения и трея (monitor::apply_config). Без
+    // него «Включить» в момент, когда самолечение переключало стратегию,
+    // давало два запуска winws вперемешку: работал один конфиг, а Klutz
+    // считал включённым другой.
+    let _apply = crate::monitor::APPLY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let live_logs = match winws::spawn_winws(&app, &root, &file_name) {
         Ok(v) => v,
         Err(e) => {

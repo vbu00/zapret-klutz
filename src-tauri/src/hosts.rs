@@ -27,7 +27,8 @@ pub const BACKUP: &str = "hosts.klutz.bak";
 pub fn entries(text: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in text.lines() {
-        let line = line.split('#').next().unwrap_or("").trim();
+        // BOM от Блокнота в начале файла — иначе первая строка не разбиралась.
+        let line = line.trim_start_matches('\u{feff}').split('#').next().unwrap_or("").trim();
         let mut f = line.split_whitespace();
         let Some(ip) = f.next() else { continue };
         if ip.parse::<std::net::IpAddr>().is_err() {

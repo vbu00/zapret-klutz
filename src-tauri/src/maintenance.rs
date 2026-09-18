@@ -247,6 +247,7 @@ fn read_list(p: &Path) -> String {
     fs::read_to_string(p)
         .unwrap_or_default()
         .lines()
+        .map(|l| l.trim_start_matches('\u{feff}'))
         .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n")
@@ -269,7 +270,9 @@ pub fn get_custom_lists(root: &Path) -> CustomLists {
 /// Поддомены домен покрывает сам, так что `*.` тоже лишнее. Комментарии
 /// оставляем как есть.
 pub fn clean_domain(line: &str) -> Option<String> {
-    let l = line.trim();
+    // BOM от Блокнота: Rust не считает его пробелом, и первая строка файла
+    // превращалась в «\u{feff}rutracker.org» — не находилась и кочевала дальше.
+    let l = line.trim().trim_start_matches('\u{feff}').trim();
     if l.is_empty() {
         return None;
     }
@@ -362,6 +365,7 @@ mod unit_tests {
         assert_eq!(clean_domain("# свой комментарий").as_deref(), Some("# свой комментарий"));
         assert_eq!(clean_domain("   "), None);
         assert_eq!(clean_domain("https://"), None);
+        assert_eq!(clean_domain("\u{feff}rutracker.org").as_deref(), Some("rutracker.org"));
     }
 
     #[test]
