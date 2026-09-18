@@ -1,6 +1,6 @@
 {
   "name": "zapret-klutz",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "description": "Klutz — GUI для zapret-discord-youtube и TgWsProxy (Tauri)",
   "scripts": {
